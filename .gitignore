@@ -1,0 +1,24 @@
+# ===== 密钥与环境配置（严禁提交）=====
+.env
+.env.*
+# MCP 服务配置里常带 env 密钥，同样不上传；代码在缺失时会自动容错
+mcp_servers.json
+
+# ===== Python 运行产物 =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ===== Agent 运行时隐私数据 =====
+# 完整对话历史（history.jsonl）、长期记忆与每日情景记忆，首次运行会自动重建
+memory/
+# 用户画像会被 Agent 写入个人偏好信息，缺失时自动重建
+templates/USER.md
+# 工具审计日志（记录每次写文件/执行命令的完整参数）
+.hooks_audit.jsonl
+# 队友收件箱与团队状态
+.team/
+# Hook 沙箱改写的落盘目录
+sandbox/
