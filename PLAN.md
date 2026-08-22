@@ -94,7 +94,7 @@
     `SENSITIVE_PATTERNS`（.env、id_rsa、credentials 等）时返回 deny
   - 【完成标志】对 Agent 说"读取 .env 文件"，工具返回 `[HookDecision: 拒绝]` 开头的消息，
     文件内容不出现在对话与 history 中
-- [ ] **2.2 run_command 加固**
+- [x] **2.2 run_command 加固**（✅ 2026-08-22，实测：sleep(999) 在 120.4 秒被截断、进程树无残留；Windows 危险命令单测 20/20；敏感路径命令走 ask）
   - 要求一：`subprocess.run` 增加 `timeout`（建议 120 秒），超时返回错误文本
   - 要求二：`DANGEROUS_PATTERNS` 补充 Windows 等价命令
     （`Remove-Item -Recurse`、`del /s /q`、`format `、`rd /s` 等）
@@ -154,9 +154,6 @@
   须重构为运行时可重建，并把各模块的 `from .llm import client` 统一改为 `llm.client` 引用
 - `subagent.py` 的 `run_subagent` 内 LLM 调用无兜底（team.py 已有 try/except）：
   子代理内 API 抛错会击穿主循环，建议复用 1.4 的 `call_llm`
-- `run_command` 可绕过 2.1 的读取保护：`type .env`、`cat ~/.ssh/id_rsa` 等命令只过危险/高危
-  清单，不做敏感路径检查；可评估对命令串复用 SENSITIVE_PATTERNS（注意误报，
-  如 `cp .env.example .env`），宜与任务 2.2 一并处理
 
 ---
 
@@ -169,3 +166,4 @@
 | 2026-08-22 | 任务 1.3、1.4 完成并勾选（均按完成标志实测验证） | 阶段一推进 |
 | 2026-08-22 | 修订 1.4 完成标志（"无需重启恢复"→"重启后恢复"）；新增 2 条 Backlog | 原标准与架构现状冲突：client 启动时读取 .env，运行中修改不生效；验证中发现 subagent 缺兜底 |
 | 2026-08-22 | 任务 2.1 完成并勾选（单测 12/12 + 端到端实测，history 零密钥泄漏）；新增 1 条 Backlog | 阶段二推进；验证中发现 run_command 存在绕过路径 |
+| 2026-08-22 | 任务 2.2 完成并勾选；Backlog"run_command 绕过读取保护"升级并入 2.2（命令涉及敏感路径走 ask）；顺手修复大小写绕过（_match_pattern 改为大小写不敏感） | 阶段二推进；首版超时实现在 Windows 存在管道死锁（孙进程持有管道写端），改为临时文件中转 + taskkill 整树击杀后实测通过 |

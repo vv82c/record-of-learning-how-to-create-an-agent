@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import signal
 import subprocess
+import sys
+import tempfile
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
@@ -196,6 +200,56 @@ TOOL_SCHEMAS: dict[str, dict] = {
 }
 
 
+COMMAND_TIMEOUT_SECONDS = 120  # run_command 默认超时（任务 2.2）：防止卡死的命令挂起整个会话
+
+
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    """超时时杀掉整个进程树。
+
+    subprocess 自带的 kill() 只杀直接子进程（shell）。Windows 上孙进程会残留，
+    还继承着输出管道的写端——这是 subprocess.run(timeout=...) 在 shell=True 下
+    收尾无限阻塞的根源，所以必须整树击杀。
+    """
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+    else:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+
+
+def run_shell_command(command: str, timeout: int = COMMAND_TIMEOUT_SECONDS) -> str:
+    """执行 shell 命令并返回输出文本；超时则杀掉进程树并返回错误说明。
+
+    输出经临时文件中转而不是管道：管道的写端会被孙进程继承，超时杀掉 shell 后
+    仍等不到 EOF，整个会话会被卡到孙进程自己退出为止。
+    """
+    with tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace") as out_f, \
+         tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace") as err_f:
+        popen_kwargs = {"stdout": out_f, "stderr": err_f, "shell": True}
+        if sys.platform != "win32":
+            popen_kwargs["start_new_session"] = True  # 独立进程组，便于 killpg 整树击杀
+        proc = subprocess.Popen(command, **popen_kwargs)
+        try:
+            proc.communicate(timeout=timeout)
+            timed_out = False
+        except subprocess.TimeoutExpired:
+            _kill_process_tree(proc)
+            proc.communicate()  # 回收退出状态；文件方案下不会再阻塞
+            timed_out = True
+        out_f.seek(0)
+        err_f.seek(0)
+        stdout, stderr = out_f.read(), err_f.read()
+
+    if timed_out:
+        text = f"Error: 命令超过 {timeout} 秒未完成，进程树已被强制终止（TimeoutExpired）。"
+        if (stdout or stderr).strip():
+            text += f"\n超时前已捕获的部分输出：\n{stdout or stderr}"
+        return text
+    return stdout or stderr
+
+
 def execute_basic_tool(block: SimpleNamespace, prefix: str = "") -> str:
     """处理基础工具，返回字符串内容。
     prefix 用于在终端打印时区分主/子上下文（例如 prefix='子·'）。"""
@@ -209,8 +263,7 @@ def execute_basic_tool(block: SimpleNamespace, prefix: str = "") -> str:
     if block.name == "run_command":
         command = block.input["command"]
         print(f"  [{prefix}执行命令]: {command}")
-        result = subprocess.run(command, shell=True, capture_output=True, text=True)
-        output = result.stdout or result.stderr
+        output = run_shell_command(command, COMMAND_TIMEOUT_SECONDS)
         print(f"  [{prefix}命令输出]: {output.strip()[:200]}")
         return output
 

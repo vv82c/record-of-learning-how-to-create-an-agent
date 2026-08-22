@@ -228,7 +228,7 @@ class ToolPolicyHook(Hook):
     一个 Hook 覆盖教学里最有代表性的 before_tool_call 能力：
     - allow + updated_input：把演示生产路径改写到沙箱
     - deny：拒绝敏感文件的写入与读取（.env / 密钥等）、破坏性命令
-    - ask：高敏感操作交给用户确认
+    - ask：高敏感操作、涉及敏感文件路径的命令交给用户确认
     """
 
     name = "tool_policy"
@@ -249,15 +249,26 @@ class ToolPolicyHook(Hook):
     ]
 
     DANGEROUS_PATTERNS = [
+        # Unix 系
         ("rm -rf /", "递归删除根目录"),
         ("rm -rf ~", "递归删除用户目录"),
-        ("DROP TABLE", "删除数据库表"),
-        ("DROP DATABASE", "删除数据库"),
         ("mkfs.", "格式化文件系统"),
         ("dd if=", "直接磁盘写入"),
         ("> /dev/sda", "覆写磁盘设备"),
         ("chmod 777 /", "开放根目录权限"),
         (":(){ :|:& };:", "fork bomb"),
+        # 数据库
+        ("DROP TABLE", "删除数据库表"),
+        ("DROP DATABASE", "删除数据库"),
+        # Windows 系（任务 2.2：匹配改为大小写不敏感，变体同样命中）
+        ("remove-item -recurse", "PowerShell 递归删除"),
+        ("rd /s", "cmd 递归删除目录"),
+        ("rmdir /s", "cmd 递归删除目录"),
+        ("del /s", "cmd 递归删除文件"),
+        ("format ", "格式化磁盘"),
+        ("diskpart", "磁盘分区操作"),
+        ("\\.\physicaldrive", "直接写入物理磁盘"),
+        ("%0|%0", "Windows fork bomb"),
     ]
 
     HIGH_SENSITIVITY = [
@@ -281,9 +292,11 @@ class ToolPolicyHook(Hook):
         return normalized
 
     def _match_pattern(self, value: str, patterns) -> tuple[str, str] | None:
+        """大小写不敏感的子串匹配：命令与 Windows 路径都不区分大小写。"""
+        lowered = value.lower()
         for item in patterns:
             pattern, description = item if isinstance(item, tuple) else (item, item)
-            if pattern in value:
+            if pattern.lower() in lowered:
                 return pattern, description
         return None
 
@@ -304,6 +317,17 @@ class ToolPolicyHook(Hook):
                 reason = f"危险命令已拦截：{description}（匹配模式：{pattern}）"
                 print(f"[hook:tool_policy] {reason}")
                 return HookDecision(action="deny", reason=reason)
+
+            # 命令涉及敏感文件/路径（任务 2.2，堵住 2.1 留下的绕过口子）：
+            # 如 type .env、cat ~/.ssh/id_rsa。用 ask 而非 deny——因为命令引用敏感路径
+            # 存在合理场景（如 cp .env.example .env），交给用户分辨；非交互环境默认拒绝。
+            sensitive = self._match_pattern(command, self.SENSITIVE_PATTERNS)
+            if sensitive:
+                pattern, _ = sensitive
+                return HookDecision(
+                    action="ask",
+                    reason=f"命令涉及敏感文件/路径（匹配模式：{pattern}），需要确认。命令：{command[:120]}",
+                )
 
             high_sensitivity = self._match_pattern(command, self.HIGH_SENSITIVITY)
             if high_sensitivity:
