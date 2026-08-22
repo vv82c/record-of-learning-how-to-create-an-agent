@@ -11,6 +11,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
+from openai import APIConnectionError, InternalServerError, RateLimitError
+
 from agent_core import memory_compact, todos as todos_mod
 from agent_core.config import MCP_CONFIG_PATH
 from agent_core.hooks import HOOKS, HookDecision, confirm_hook_decision
@@ -315,6 +317,43 @@ def is_blocking_tool_result(result: str) -> bool:
     return result.startswith("[HookDecision: 拒绝]") or result.startswith("[HookDecision: 需要确认]")
 
 
+# ============== LLM 调用兜底（任务 1.4） ==============
+# 可重试：网络/超时（APIConnectionError 含 APITimeoutError）、限流 429、服务端 5xx——过一会儿可能就好了。
+# 不可重试：认证 401、参数 400 等——请求本身有问题，重试只会得到同样的失败。
+RETRYABLE_ERRORS = (APIConnectionError, RateLimitError, InternalServerError)
+MAX_LLM_RETRIES = 3
+
+
+def call_llm(messages: list[dict], tools: list[dict]):
+    """带异常兜底的 LLM 调用：可重试错误指数退避重试，其余失败返回 None（不抛异常）。
+
+    失败时打印原因并返回 None，由调用方决定如何继续——
+    主循环收到 None 后放弃本轮、回到输入提示符，保证会话不因一次 API 失败而崩溃退出。
+    """
+    delay = 1.0
+    last_error: Exception | None = None
+    for attempt in range(1, MAX_LLM_RETRIES + 1):
+        try:
+            return client.chat.completions.create(
+                model=MODEL,
+                max_tokens=20000,
+                messages=messages,
+                tools=tools,
+            )
+        except RETRYABLE_ERRORS as exc:
+            last_error = exc
+            if attempt < MAX_LLM_RETRIES:
+                print(f"\n[LLM 调用失败（第 {attempt}/{MAX_LLM_RETRIES} 次），{delay:.0f} 秒后重试]: {exc}")
+                time.sleep(delay)
+                delay *= 2
+        except Exception as exc:
+            print(f"\n[LLM 调用出错，本轮已放弃，可继续输入]: {type(exc).__name__}: {exc}")
+            print("[提示] 请检查 .env 中 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL 是否正确。\n")
+            return None
+    print(f"\n[LLM 连续 {MAX_LLM_RETRIES} 次调用失败，本轮已放弃，可继续输入]: {last_error}\n")
+    return None
+
+
 def main():
     # 连接 MCP Server 并把外部工具并入 schema 表
     connect_all(MCP_CONFIG_PATH)
@@ -375,12 +414,13 @@ def main():
                 print(f"[Agent回答]: {short}\n")
                 break
 
-            response = client.chat.completions.create(
-                model=MODEL,
-                max_tokens=20000,
-                messages=[{"role": "system", "content": turn_ctx.get("system_prompt", build_system_prompt())}] + history,
-                tools=tools,
+            response = call_llm(
+                [{"role": "system", "content": turn_ctx.get("system_prompt", build_system_prompt())}] + history,
+                tools,
             )
+            if response is None:
+                # 调用彻底失败：错误信息已打印，保留用户消息，回到输入提示符继续会话
+                break
             message = response.choices[0].message
             turn_ctx.update({"message": message, "usage": getattr(response, "usage", None)})
             HOOKS.emit("after_turn", turn_ctx)

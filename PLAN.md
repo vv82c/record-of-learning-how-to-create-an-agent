@@ -72,17 +72,19 @@
   - ✅ 完成于 2026-08-22，commit `ea2a21c`
 - [x] **1.2 编写 .gitignore 并初始化 git 仓库、首次推送**
   - ✅ 完成于 2026-08-22，已验证 `.env` / `memory/` / `templates/USER.md` / `.team/` 均被拦截
-- [ ] **1.3 创建 requirements.txt**
+- [x] **1.3 创建 requirements.txt**（✅ 2026-08-22，按完成标志验证：全新 clone + 独立 venv 安装 + 启动成功）
   - 内容：`openai`、`python-dotenv`、`pyyaml`、`mcp`
   - 同步：README 快速开始一节改为 `pip install -r requirements.txt`
   - 【完成标志】在一个全新目录 `git clone` 本仓库后，仅执行 `pip install -r requirements.txt`
     并配置 `.env`，`python main.py` 能正常启动进入对话
-- [ ] **1.4 主循环 LLM 调用异常兜底**
+- [x] **1.4 主循环 LLM 调用异常兜底**（✅ 2026-08-22，实测：错误 Key 得 401 不崩溃、回到提示符；正确 Key 重启后恢复正常对话）
   - 位置：`main.py` 中 `client.chat.completions.create(...)`（约 378 行）
   - 要求：try/except 捕获 API 异常；打印错误信息后**返回输入提示符继续会话**，不崩溃退出；
     可选加分项：指数退避自动重试 2~3 次（仅对超时/限流类错误）
   - 【完成标志】故意把 `.env` 中 API Key 改错后运行，程序打印错误但不退出，
-    仍能继续输入；改回正确 Key 后无需重启即可恢复对话
+    仍能继续输入；改回正确 Key 并**重启**后恢复正常对话
+    （2026-08-22 修订：原标准"无需重启恢复"不可达——client 在进程启动时读取 .env，
+    运行中修改不生效；动态重建 client 已列入 Backlog）
 
 ## 阶段二：安全加固（P1）
 
@@ -148,7 +150,10 @@
 
 > 只记录，不排期。升级为正式任务前不占用主线资源。
 
-- （暂无）
+- `agent_core/llm.py` 的 `client` 是模块级单例，启动时读取 .env；如需"改 Key / 换模型免重启"，
+  须重构为运行时可重建，并把各模块的 `from .llm import client` 统一改为 `llm.client` 引用
+- `subagent.py` 的 `run_subagent` 内 LLM 调用无兜底（team.py 已有 try/except）：
+  子代理内 API 抛错会击穿主循环，建议复用 1.4 的 `call_llm`
 
 ---
 
@@ -158,3 +163,5 @@
 |---|---|---|
 | 2026-08-22 | 创建计划书；1.1、1.2 直接标记完成 | 依据当日分析报告与已完成工作 |
 | 2026-08-22 | 新增【学习路线】章节与 LEARNING.md，使用规则增补第 6 条 | 学习者要求边开发边学习，将知识点与开发任务逐一绑定 |
+| 2026-08-22 | 任务 1.3、1.4 完成并勾选（均按完成标志实测验证） | 阶段一推进 |
+| 2026-08-22 | 修订 1.4 完成标志（"无需重启恢复"→"重启后恢复"）；新增 2 条 Backlog | 原标准与架构现状冲突：client 启动时读取 .env，运行中修改不生效；验证中发现 subagent 缺兜底 |
