@@ -227,12 +227,12 @@ class ToolPolicyHook(Hook):
 
     一个 Hook 覆盖教学里最有代表性的 before_tool_call 能力：
     - allow + updated_input：把演示生产路径改写到沙箱
-    - deny：拒绝敏感文件写入和破坏性命令
+    - deny：拒绝敏感文件的写入与读取（.env / 密钥等）、破坏性命令
     - ask：高敏感操作交给用户确认
     """
 
     name = "tool_policy"
-    matcher = "write_file|run_command"
+    matcher = "write_file|run_command|read_file"
 
     SENSITIVE_PATTERNS = [
         ".env",
@@ -312,6 +312,18 @@ class ToolPolicyHook(Hook):
                     action="ask",
                     reason=f"需要确认：{description}。命令：{command[:120]}",
                 )
+            return
+
+        # 读类工具（任务 2.1）：只做敏感文件拦截，不参与写路径的沙箱前缀改写。
+        # 读取 .env / 密钥文件没有合理场景，直接 deny（写类高危才用 ask 走用户确认）。
+        if ctx.get("name") == "read_file":
+            path = self._normalize_path(str(inp.get("path", "")))
+            sensitive = self._match_pattern(path, self.SENSITIVE_PATTERNS)
+            if sensitive:
+                pattern, _ = sensitive
+                reason = f"敏感文件读取已拦截：'{path}'（匹配模式：{pattern}）"
+                print(f"[hook:tool_policy] {reason}")
+                return HookDecision(action="deny", reason=reason)
             return
 
         updated_input = None

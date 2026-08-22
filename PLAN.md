@@ -88,7 +88,7 @@
 
 ## 阶段二：安全加固（P1）
 
-- [ ] **2.1 read_file 纳入策略 Hook 管控**
+- [x] **2.1 read_file 纳入策略 Hook 管控**（✅ 2026-08-22，单测 12/12 + 端到端实测：Agent 读 .env 被拒，history 中密钥出现 0 次）
   - 位置：`agent_core/hooks.py` 的 `ToolPolicyHook`
   - 要求：matcher 扩展为 `write_file|run_command|read_file`；读取命中
     `SENSITIVE_PATTERNS`（.env、id_rsa、credentials 等）时返回 deny
@@ -154,6 +154,9 @@
   须重构为运行时可重建，并把各模块的 `from .llm import client` 统一改为 `llm.client` 引用
 - `subagent.py` 的 `run_subagent` 内 LLM 调用无兜底（team.py 已有 try/except）：
   子代理内 API 抛错会击穿主循环，建议复用 1.4 的 `call_llm`
+- `run_command` 可绕过 2.1 的读取保护：`type .env`、`cat ~/.ssh/id_rsa` 等命令只过危险/高危
+  清单，不做敏感路径检查；可评估对命令串复用 SENSITIVE_PATTERNS（注意误报，
+  如 `cp .env.example .env`），宜与任务 2.2 一并处理
 
 ---
 
@@ -165,3 +168,4 @@
 | 2026-08-22 | 新增【学习路线】章节与 LEARNING.md，使用规则增补第 6 条 | 学习者要求边开发边学习，将知识点与开发任务逐一绑定 |
 | 2026-08-22 | 任务 1.3、1.4 完成并勾选（均按完成标志实测验证） | 阶段一推进 |
 | 2026-08-22 | 修订 1.4 完成标志（"无需重启恢复"→"重启后恢复"）；新增 2 条 Backlog | 原标准与架构现状冲突：client 启动时读取 .env，运行中修改不生效；验证中发现 subagent 缺兜底 |
+| 2026-08-22 | 任务 2.1 完成并勾选（单测 12/12 + 端到端实测，history 零密钥泄漏）；新增 1 条 Backlog | 阶段二推进；验证中发现 run_command 存在绕过路径 |
