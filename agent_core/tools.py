@@ -1,10 +1,12 @@
 """内置工具：schema 定义与执行（run_command / web_fetch / read_file / write_file / glob / grep / load_skill）。"""
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -12,6 +14,7 @@ import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 from .skills import SKILL_LOADER
 
@@ -40,11 +43,78 @@ class _TextExtractor(HTMLParser):
         return re.sub(r"\n{3,}", "\n\n", "".join(self._parts)).strip()
 
 
-def web_fetch(url: str, extract_mode: str = "text", max_chars: int = 8000) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+# ============== SSRF 防护（任务 2.3） ==============
+# web_fetch 能替 Agent 访问任意 URL。若不设限，一段提示注入就能指挥它去摸
+# 本机服务、路由器管理页或云元数据接口（169.254.169.254）。
+# 防护做在工具函数内部，主 Agent、子代理、队友的调用都自动生效。
+BLOCKED_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),     # IPv4 回环：整个 127 段都指本机
+    ipaddress.ip_network("0.0.0.0/8"),       # "未知地址"，部分系统按本机处理
+    ipaddress.ip_network("10.0.0.0/8"),      # 私有网段（A 类）
+    ipaddress.ip_network("172.16.0.0/12"),   # 私有网段（B 类，172.16 ~ 172.31）
+    ipaddress.ip_network("192.168.0.0/16"),  # 私有网段（C 类）
+    ipaddress.ip_network("169.254.0.0/16"),  # 链路本地：云厂商元数据服务所在段
+    ipaddress.ip_network("::1/128"),         # IPv6 回环
+    ipaddress.ip_network("fe80::/10"),       # IPv6 链路本地
+]
+BLOCKED_HOSTNAMES = {"localhost"}
+
+
+class BlockedAddressError(Exception):
+    """SSRF 防护：目标解析到本机/内网/保留地址。"""
+
+
+def _is_blocked_address(ip_str: str) -> bool:
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        addr = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return any(addr in net for net in BLOCKED_NETWORKS)
+
+
+def assert_url_allowed(url: str) -> None:
+    """SSRF 检查，不通过则抛 BlockedAddressError。
+
+    1) 主机名是 localhost 或 IP 字面量 → 直接判断；
+    2) 域名 → getaddrinfo 解析出全部 IP 逐一判断，堵住"域名解析到内网"的绕过。
+    局限：检查与实际连接各自解析一次 DNS，理论上存在 TOCTOU 竞态（DNS rebinding），
+    教学版不做到"锁定已解析 IP 直连"的程度。
+    """
+    parts = urlsplit(url)
+    host = (parts.hostname or "").strip().rstrip(".").lower()
+    if not host:
+        raise BlockedAddressError(f"URL 中解析不出主机名（非 http(s) 地址？）：{url}")
+    if host in BLOCKED_HOSTNAMES:
+        raise BlockedAddressError(f"目标主机名为 localhost，已拦截：{url}")
+    if _is_blocked_address(host):
+        raise BlockedAddressError(f"目标 {host} 属于内网/保留地址段，已拦截：{url}")
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as exc:
+        raise BlockedAddressError(f"主机名解析失败：{host}（{exc}）")
+    for info in infos:
+        ip = info[4][0]
+        if _is_blocked_address(ip):
+            raise BlockedAddressError(f"{host} 解析到内网/保留地址 {ip}，已拦截：{url}")
+
+
+class _SSRFRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """30x 重定向的目标同样要过 SSRF 检查，否则"外网 URL 跳内网"就能绕过防护。"""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        assert_url_allowed(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def web_fetch(url: str, extract_mode: str = "text", max_chars: int = 8000) -> str:
+    try:
+        assert_url_allowed(url)
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        opener = urllib.request.build_opener(_SSRFRedirectHandler)
+        with opener.open(req, timeout=10) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
+    except BlockedAddressError as e:
+        return f"Error: SSRF 防护已拦截：{e}"
     except Exception as e:
         return f"Error fetching {url}: {e}"
 

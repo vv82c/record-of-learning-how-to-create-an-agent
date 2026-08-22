@@ -100,7 +100,7 @@
     （`Remove-Item -Recurse`、`del /s /q`、`format `、`rd /s` 等）
   - 【完成标志】① 执行 `python -c "import time; time.sleep(999)"` 在 120 秒被截断并返回
     超时错误；② 执行 `Remove-Item -Recurse` 类命令被 Hook 拒绝
-- [ ] **2.3 web_fetch 内网防护（防 SSRF）**
+- [x] **2.3 web_fetch 内网防护（防 SSRF）**（✅ 2026-08-23，单测 34/34：CIDR 边界、拦截列表、域名指向内网、重定向检查、外网不误伤；端到端实测 Agent 抓 127.0.0.1 与 192.168.1.1 均被拒）
   - 位置：`agent_core/tools.py` 的 `web_fetch`
   - 要求：解析目标主机名，拒绝 localhost、127.0.0.1、0.0.0.0、
     192.168.0.0/16、10.0.0.0/8、172.16.0.0/12、169.254.0.0/16
@@ -154,6 +154,11 @@
   须重构为运行时可重建，并把各模块的 `from .llm import client` 统一改为 `llm.client` 引用
 - `subagent.py` 的 `run_subagent` 内 LLM 调用无兜底（team.py 已有 try/except）：
   子代理内 API 抛错会击穿主循环，建议复用 1.4 的 `call_llm`
+- 子代理与队友的工具调用走 `execute_basic_tool`，**不经过** `execute_main_tool` 的 Hook 链——
+  2.1/2.2 的 Hook 层防护（敏感文件、危险命令）对他们不生效；只有做在工具函数内部的
+  SSRF 防护（2.3）能覆盖全端。可选方案：把关键防护下沉到工具层，或让子代理也接入 Hook 注册表
+- `run_command` + `curl http://192.168.1.1` 可绕过 web_fetch 的 SSRF 防护（端到端实测中
+  Agent 主动提出了这条"绕行建议"）——命令黑名单不认识它；根治靠命令级沙箱/出网白名单
 
 ---
 
@@ -167,3 +172,4 @@
 | 2026-08-22 | 修订 1.4 完成标志（"无需重启恢复"→"重启后恢复"）；新增 2 条 Backlog | 原标准与架构现状冲突：client 启动时读取 .env，运行中修改不生效；验证中发现 subagent 缺兜底 |
 | 2026-08-22 | 任务 2.1 完成并勾选（单测 12/12 + 端到端实测，history 零密钥泄漏）；新增 1 条 Backlog | 阶段二推进；验证中发现 run_command 存在绕过路径 |
 | 2026-08-22 | 任务 2.2 完成并勾选；Backlog"run_command 绕过读取保护"升级并入 2.2（命令涉及敏感路径走 ask）；顺手修复大小写绕过（_match_pattern 改为大小写不敏感） | 阶段二推进；首版超时实现在 Windows 存在管道死锁（孙进程持有管道写端），改为临时文件中转 + taskkill 整树击杀后实测通过 |
+| 2026-08-23 | 任务 2.3 完成并勾选，**阶段二（安全加固）全部完成**；新增 2 条 Backlog（子代理绕过 Hook 链、curl 绕过 SSRF） | 阶段二收官；端到端实测中 Agent 自己演示了"建议用 curl 绕关防"，佐证纵深防御的必要性 |
