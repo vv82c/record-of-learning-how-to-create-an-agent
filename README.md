@@ -28,7 +28,7 @@
 
 ```bash
 # 1. 安装依赖
-pip install openai python-dotenv pyyaml mcp
+pip install -r requirements.txt
 
 # 2. 在项目根目录创建 .env（已被 .gitignore 忽略，不会上传）
 # LLM_BASE_URL=你的 OpenAI 兼容接口地址
