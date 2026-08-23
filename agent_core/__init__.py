@@ -15,6 +15,7 @@
 - team           持久 Agent Team 与 inbox 消息总线
 - mcp_client     MCP 外部工具协议
 - hooks          Hook 生命周期框架与内置 Hooks
+- runner         对话内核驱动器（SessionRunner：事件流 + confirmer 注入，终端/Web 双入口共用）
 
 入口程序在项目根目录 main.py。
 """
