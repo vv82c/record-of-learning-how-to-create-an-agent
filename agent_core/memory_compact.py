@@ -69,12 +69,14 @@ def compact_history(
     model: str,
     memory_store,
     max_tokens: int = 3000,
+    force: bool = False,
 ) -> list[dict]:
     """history 超过阈值时压缩：旧消息沉淀进记忆文件，只保留最近一段。
 
     压缩失败时不抛异常，原样返回 history（宁可不压缩，不能中断对话）。
+    force=True 供 /compact 手动触发：跳过阈值检查，能压多少压多少。
     """
-    if len(history) <= COMPACT_AFTER_MESSAGES:
+    if not force and len(history) <= COMPACT_AFTER_MESSAGES:
         return history
 
     split = _find_split_point(history)

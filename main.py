@@ -436,7 +436,7 @@ def main():
     tools = build_tool_schemas(TOOLS)
 
     print("累积式 Agent（tools + memory + skills + subagent + team + mcp + hooks）")
-    print("输入 q/quit/exit 退出；/team 查看队友；/inbox 查看 lead 收件箱；/mcp 查看 MCP 工具")
+    print("输入 q/quit/exit 退出；/team 队友；/inbox 收件箱；/mcp 工具；/todos 计划；/memory 记忆；/compact 压缩")
 
     history: list[dict] = []
 
@@ -460,6 +460,27 @@ def main():
             continue
         if command == "/mcp":
             print(list_mcp_servers())
+            print()
+            continue
+        if command == "/todos":
+            print("===== 当前计划 =====")
+            print(todos_mod.render_todos(todos_mod.TODOS))
+            print()
+            continue
+        if command == "/memory":
+            print("===== MEMORY.md（长期记忆）=====")
+            print(MEMORY.read_memory().rstrip())
+            print("===== USER.md（用户画像）=====")
+            print(MEMORY.read_user().rstrip())
+            print()
+            continue
+        if command == "/compact":
+            before = len(history)
+            history = memory_compact.compact_history(history, client, MODEL, MEMORY, force=True)
+            if len(history) < before:
+                print(f"[手动压缩完成] history: {before} -> {len(history)} 条，旧对话已沉淀进记忆文件")
+            else:
+                print(f"[无需压缩] 当前 history 共 {len(history)} 条，没有可安全切分的旧对话段")
             print()
             continue
 
