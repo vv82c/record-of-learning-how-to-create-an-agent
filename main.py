@@ -19,6 +19,7 @@ from agent_core.hooks import HOOKS, HookDecision, confirm_hook_decision
 from agent_core.llm import MODEL, assistant_to_dict, client, to_tool_call
 from agent_core.mcp_client import build_tool_schemas, connect_all, list_mcp_servers
 from agent_core.memory import MEMORY
+from agent_core.memory_rag import MEMORY_RAG
 from agent_core.registry import execute_tool, get_schemas
 from agent_core.skills import SKILL_LOADER
 from agent_core.subagent import run_subagent
@@ -26,8 +27,9 @@ from agent_core.team import BUS, TEAM
 
 
 # ============== 主 Agent 系统提示词 ==============
-def build_system_prompt() -> str:
-    memory = MEMORY.read_memory()
+def build_system_prompt(query: str = "") -> str:
+    # 任务 4.4：长期记忆按当前话题检索 Top-K 注入（记忆条目少时自动全量，行为与旧版一致）
+    memory = MEMORY_RAG.render_for_prompt(query)
     user_profile = MEMORY.read_user()
     today_episode = MEMORY.read_today_episode()
     return f"""
@@ -312,11 +314,14 @@ def main():
 
         stop_gate_retries = 0
         while True:
+            latest_user = next(
+                (m.get("content") for m in reversed(history) if m.get("role") == "user"), ""
+            )
             turn_ctx = {
                 "history": history,
                 "model": MODEL,
                 "turn": len(history),
-                "system_prompt": build_system_prompt(),
+                "system_prompt": build_system_prompt(query=latest_user),
             }
             short = HOOKS.emit("before_turn", turn_ctx)
             if isinstance(short, HookDecision):
@@ -334,7 +339,7 @@ def main():
                 break
 
             response = call_llm(
-                [{"role": "system", "content": turn_ctx.get("system_prompt", build_system_prompt())}] + history,
+                [{"role": "system", "content": turn_ctx.get("system_prompt", build_system_prompt(query=latest_user))}] + history,
                 tools,
             )
             if response is None:

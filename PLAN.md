@@ -134,7 +134,7 @@
 - [x] **4.3 MCP 长连接**（✅ 2026-08-23，spy 计数实测：10 次调用 + list_tools 仅 spawn 1 次进程；杀进程模拟断线后自动重连（spawn=2）恢复调用；stop/退出零残留进程）
   - 要求：`MCPClient` 保持 stdio 会话而非每次 `call_tool` 冷启动子进程
   - 【完成标志】连续调用同一 MCP 工具 10 次，进程只启动一次；连接断开时自动重连或降级报错
-- [ ] **4.4 记忆检索（RAG）**
+- [x] **4.4 记忆检索（RAG）**（✅ 2026-08-23，实测：123 条 → 403 条记忆，system prompt 恒定 2002 字；注入块仅全量 2%；123 条中埋的双事实端到端全部答对；mock 验证 API 向量路径与降级路径。注：DeepSeek 无 embeddings 接口，默认本地词法向量，换供应商后 .env 配 LLM_EMBEDDING_MODEL 即可切换语义检索）
   - 要求：长期记忆不再全量塞 system prompt，改为向量化按需检索 Top-K
   - 【完成标志】MEMORY.md 膨胀到 100 条以上时，单轮请求的 system prompt 体积保持稳定
 - [ ] **4.5 多会话管理**
@@ -182,3 +182,4 @@
 | 2026-08-23 | 任务 4.1 完成并勾选：新增 `agent_core/registry.py` 统一注册；main.py 删内联 schema 与 if/elif 分发链，team.py 接入注册表（函数内导入破循环依赖）；新增演示工具 current_time；新增 1 条 Backlog | 阶段四推进；端到端发现"批量调用一个被拦即整轮终止"的既有交互问题 |
 | 2026-08-23 | 任务 4.2 完成并勾选：compact_history 新增 update_memory_files / episode_prefix 参数（队友只追加 episode，不回写共享记忆），队友工作循环末尾接入压缩 | 阶段四推进；写入权限分级是本项核心设计：队友视角片面，全量重写会冲掉主 Agent 记忆 |
 | 2026-08-23 | 任务 4.3 完成并勾选：MCPClient 改长连接（专职后台事件循环承载会话，懒建立 + 断线丢弃重连 + atexit 清理） | 阶段四推进；解决 async 会话与同步多线程 Agent 的桥接问题 |
+| 2026-08-23 | 任务 4.4 完成并勾选：新增 `agent_core/memory_rag.py`（可插拔向量源 + 阈值混合策略 + 内容哈希缓存），build_system_prompt 按当前话题检索注入 | 阶段四推进；供应商 DeepSeek 无 embeddings 接口（探测 404），默认本地 bigram 词法向量并保留 env 一键切换语义检索的通道 |

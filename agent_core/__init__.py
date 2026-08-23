@@ -5,6 +5,7 @@
 - llm            LLM 客户端与 OpenAI 协议消息适配
 - memory         记忆存储（长期记忆 / 用户画像 / 历史 / 情景记忆）
 - memory_compact 上下文压缩（history -> 记忆沉淀）
+- memory_rag     长期记忆检索（Top-K 注入 system prompt）
 - todos          TodoList 计划
 - skills         技能加载
 - tools          内置工具定义与执行
