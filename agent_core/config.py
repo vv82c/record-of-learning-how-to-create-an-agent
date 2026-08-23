@@ -4,6 +4,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SKILLS_DIR = PROJECT_ROOT / "skills"
 MEMORY_DIR = PROJECT_ROOT / "memory"
+SESSIONS_DIR = MEMORY_DIR / "sessions"
 TEMPLATES_DIR = PROJECT_ROOT / "templates"
 MCP_CONFIG_PATH = PROJECT_ROOT / "mcp_servers.json"
 AUDIT_FILE = PROJECT_ROOT / ".hooks_audit.jsonl"

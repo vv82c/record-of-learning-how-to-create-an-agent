@@ -23,6 +23,7 @@ from agent_core.memory_rag import MEMORY_RAG
 from agent_core.registry import execute_tool, get_schemas
 from agent_core.skills import SKILL_LOADER
 from agent_core.subagent import run_subagent
+from agent_core.sessions import SESSIONS
 from agent_core.team import BUS, TEAM
 
 
@@ -260,9 +261,16 @@ def main():
     tools = build_tool_schemas(TOOLS)
 
     print("累积式 Agent（tools + memory + skills + subagent + team + mcp + hooks）")
-    print("输入 q/quit/exit 退出；/team 队友；/inbox 收件箱；/mcp 工具；/todos 计划；/memory 记忆；/compact 压缩")
+    print("输入 q/quit/exit 退出；/team 队友；/inbox 收件箱；/mcp 工具；/todos 计划；/memory 记忆；/compact 压缩；/new 新会话；/resume 恢复会话")
+    session_id = SESSIONS.new_session()
+    print(f"当前会话：{session_id}")
 
     history: list[dict] = []
+
+    def remember(message: dict) -> None:
+        """任务 4.5：全保真写入当前会话文件（/resume 的回放源）+ 平面审计日志。"""
+        SESSIONS.append(session_id, message)
+        MEMORY.append_history(message)
 
     while True:
         try:
@@ -298,6 +306,31 @@ def main():
             print(MEMORY.read_user().rstrip())
             print()
             continue
+        if command == "/new":
+            session_id = SESSIONS.new_session()
+            history = []
+            todos_mod.clear_todos()
+            print(f"[新会话已开启] {session_id}（旧会话可用 /resume 找回）\n")
+            continue
+        # 注意带参数的命令要用前缀匹配：== "/resume" 在输入 "/resume <id>" 时永远不成立
+        # （4.5 端到端实测踩坑：命令被当成聊天发给模型，模型自己翻文件"假装"恢复了）
+        if command == "/resume" or command.startswith("/resume "):
+            parts = command.split()
+            if len(parts) < 2:
+                print(SESSIONS.render_list())
+                print()
+                continue
+            target = parts[1]
+            if not SESSIONS.exists(target):
+                print(f"[会话不存在] {target}")
+                print(SESSIONS.render_list())
+                print()
+                continue
+            loaded = SESSIONS.load(target)
+            session_id = target
+            history = loaded
+            print(f"[会话已恢复] {target}，共 {len(history)} 条消息，可以继续对话\n")
+            continue
         if command == "/compact":
             before = len(history)
             history = memory_compact.compact_history(history, client, MODEL, MEMORY, force=True)
@@ -310,7 +343,7 @@ def main():
 
         user_message = {"role": "user", "content": user_input}
         history.append(user_message)
-        MEMORY.append_history(user_message)
+        remember(user_message)
 
         stop_gate_retries = 0
         while True:
@@ -328,13 +361,13 @@ def main():
                 if short.is_blocking:
                     assistant_message = {"role": "assistant", "content": short.to_message()}
                     history.append(assistant_message)
-                    MEMORY.append_history(assistant_message)
+                    remember(assistant_message)
                     print(f"[Agent回答]: {short.to_message()}\n")
                     break
             elif isinstance(short, str):
                 assistant_message = {"role": "assistant", "content": short}
                 history.append(assistant_message)
-                MEMORY.append_history(assistant_message)
+                remember(assistant_message)
                 print(f"[Agent回答]: {short}\n")
                 break
 
@@ -351,7 +384,7 @@ def main():
 
             assistant_message = assistant_to_dict(message)
             history.append(assistant_message)
-            MEMORY.append_history(assistant_message)
+            remember(assistant_message)
 
             if not message.tool_calls:
                 reply = message.content or ""
@@ -374,7 +407,7 @@ def main():
                         ),
                     }
                     history.append(reminder_message)
-                    MEMORY.append_history(reminder_message)
+                    remember(reminder_message)
                     stop_gate_retries += 1
                     continue
                 reply = stop_ctx.get("reply", reply)
@@ -440,7 +473,7 @@ def main():
                     "content": results_map[b.id],
                 }
                 history.append(tool_message)
-                MEMORY.append_history(tool_message)
+                remember(tool_message)
 
             blocking_results = [
                 results_map[b.id] for b in tool_blocks
@@ -450,7 +483,7 @@ def main():
                 reply = "奉天承运皇帝诏曰：工具请求被运行时策略拦截，未继续改写或换路径执行。\n\n" + blocking_results[0]
                 assistant_message = {"role": "assistant", "content": reply}
                 history.append(assistant_message)
-                MEMORY.append_history(assistant_message)
+                remember(assistant_message)
                 print(f"[Agent回答]: {reply}\n")
                 break
 
