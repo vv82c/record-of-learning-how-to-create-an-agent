@@ -44,6 +44,9 @@ python main.py
 ## 📁 项目结构
 
 ```
+PLAN.md               # 完善计划书：16 项任务的验收标准、勾选纪律与变更记录
+SUMMARY.md            # 学习总结：知识点、自测题（含参考要点）、踩坑实录、验证方法学
+LEARNING.md           # 个人学习笔记与阶段复盘
 main.py               # 主入口：REPL 主循环、工具分发、子代理并发调度
 agent_core/
   ├─ llm.py           # LLM 客户端与 OpenAI 消息适配
