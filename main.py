@@ -17,17 +17,12 @@ from agent_core import memory_compact, todos as todos_mod
 from agent_core.config import MCP_CONFIG_PATH
 from agent_core.hooks import HOOKS, HookDecision, confirm_hook_decision
 from agent_core.llm import MODEL, assistant_to_dict, client, to_tool_call
-from agent_core.mcp_client import (
-    MCP_TOOL_MAP,
-    build_tool_schemas,
-    connect_all,
-    list_mcp_servers,
-)
+from agent_core.mcp_client import build_tool_schemas, connect_all, list_mcp_servers
 from agent_core.memory import MEMORY
+from agent_core.registry import execute_tool, get_schemas
 from agent_core.skills import SKILL_LOADER
-from agent_core.subagent import SUBAGENT_TYPE_OPTIONS, run_subagent
-from agent_core.team import VALID_MSG_TYPES, BUS, TEAM
-from agent_core.tools import TOOL_SCHEMAS, execute_basic_tool
+from agent_core.subagent import run_subagent
+from agent_core.team import BUS, TEAM
 
 
 # ============== 主 Agent 系统提示词 ==============
@@ -105,163 +100,9 @@ def build_system_prompt() -> str:
 6. 不要编造工具执行结果。只有工具返回的内容，才算真实执行结果。"""
 
 
-TOOLS = [
-    TOOL_SCHEMAS["run_command"],
-    TOOL_SCHEMAS["web_fetch"],
-    TOOL_SCHEMAS["load_skill"],
-    TOOL_SCHEMAS["read_file"],
-    TOOL_SCHEMAS["write_file"],
-    TOOL_SCHEMAS["glob"],
-    TOOL_SCHEMAS["grep"],
-    # 任务 3.1 修复：系统提示词提到"可调用 list_mcp_servers"，但这里一直缺 schema。
-    # 没进 TOOLS 表的工具，模型根本不知道它存在，也就永远不会发起调用。
-    {
-        "type": "function",
-        "function": {
-            "name": "list_mcp_servers",
-            "description": "列出已连接的 MCP Server 及其提供的工具。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "server": {"type": "string", "description": "指定 server 名称（可选）"}
-                }
-            },
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "update_todos",
-            "description": (
-                "创建或更新当前差事的 todolist。"
-                "传入完整的 todos 数组（每次都是全量覆盖，而非增量）。"
-                "约束：同一时间至多一个任务为 in_progress。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "todos": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "id":      {"type": "integer"},
-                                "content": {"type": "string"},
-                                "status":  {"type": "string", "enum": ["pending", "in_progress", "completed"]}
-                            },
-                            "required": ["id", "content", "status"]
-                        }
-                    }
-                },
-                "required": ["todos"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "dispatch_subagent",
-            "description": (
-                "派遣一个小太监去单独办差。"
-                "适用于：抓取并阅读多个网页、批量执行命令并整理输出、需要试错的探索性任务。"
-                "小太监有自己独立的上下文，办完只回传一段文字总结，不污染主上下文。\n"
-                "若多件差事互不依赖，可在同一回复中发出多个 dispatch_subagent，并发执行。\n"
-                "请在 task 中写清要做什么、希望返回什么格式的总结。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "task": {
-                        "type": "string",
-                        "description": "交代给小太监的差事说明"
-                    },
-                    "agent_type": {
-                        "type": "string",
-                        "enum": SUBAGENT_TYPE_OPTIONS,
-                        "description": (
-                            "小太监身份：xiaohuangmen（通传跑腿）、"
-                            "sili_suitang（司礼监文书）、"
-                            "dongchang_tanshi（东厂查访）、"
-                            "shangbao_dianbu（尚宝监典簿核验）、"
-                            "neiguan_yingzao（内官监营造，可读写）"
-                        )
-                    },
-                    "purpose": {
-                        "type": "string",
-                        "description": "一句话用途标签（可选），仅用于终端打印"
-                    }
-                },
-                "required": ["task", "agent_type"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "spawn_teammate",
-            "description": (
-                "召入一个持久队友，加入 agent team。"
-                "队友有名字、职司、独立线程和 inbox；适合长期项目或固定角色协作。"
-                "如果队友状态是 offline，也用这个工具重新启动其线程。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "队友名字，例如 alice、coder、reviewer"},
-                    "role": {"type": "string", "description": "队友职司，例如 coder、reviewer、researcher"},
-                    "prompt": {"type": "string", "description": "交给该队友的第一件差事"},
-                },
-                "required": ["name", "role", "prompt"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_teammates",
-            "description": "列出 agent team 中所有队友的名字、职司和状态。",
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "send_message",
-            "description": "给某位固定队友发送 inbox 消息。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "to": {"type": "string"},
-                    "content": {"type": "string"},
-                    "msg_type": {"type": "string", "enum": list(VALID_MSG_TYPES)},
-                },
-                "required": ["to", "content"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_inbox",
-            "description": "读取并清空 lead 自己的 inbox，用于查看队友回禀。",
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "broadcast",
-            "description": "向所有固定队友广播一条消息。",
-            "parameters": {
-                "type": "object",
-                "properties": {"content": {"type": "string"}},
-                "required": ["content"],
-            },
-        },
-    },
-]
-
-
+# 任务 4.1：全部工具 schema 与执行器集中注册在 agent_core/registry.py，这里只取表。
+# 新增工具 = 在 registry 里 register_tool 一条记录（schema + handler），无需改任何分发逻辑。
+TOOLS = get_schemas()
 def execute_main_tool(block) -> str:
     """主 Agent 工具入口：统一经过 before/after tool hooks。
 
@@ -289,27 +130,8 @@ def execute_main_tool(block) -> str:
     inp = tool_ctx.get("input", block.input)
     start = time.perf_counter()
 
-    if name in ("run_command", "web_fetch", "load_skill", "read_file", "write_file", "glob", "grep"):
-        output = execute_basic_tool(SimpleNamespace(name=name, input=inp), prefix="")
-    elif name == "update_todos":
-        output = todos_mod.update_todos(inp.get("todos", []))
-    elif name == "spawn_teammate":
-        output = TEAM.spawn(inp["name"], inp["role"], inp["prompt"])
-    elif name == "list_teammates":
-        output = TEAM.list_all()
-    elif name == "send_message":
-        output = BUS.send("lead", inp["to"], inp["content"], inp.get("msg_type", "message"))
-    elif name == "read_inbox":
-        output = json.dumps(BUS.read_inbox("lead"), ensure_ascii=False, indent=2)
-    elif name == "broadcast":
-        output = BUS.broadcast("lead", inp["content"], TEAM.member_names())
-    elif name == "list_mcp_servers":
-        output = list_mcp_servers(inp.get("server"))
-    elif name in MCP_TOOL_MAP:
-        mcp_client, tool = MCP_TOOL_MAP[name]
-        output = mcp_client.call_tool(tool.name, inp)
-    else:
-        output = f"Error: Unknown tool '{name}'"
+    # 任务 4.1：分发统一走注册表（MCP 动态工具由 execute_tool 兜底直查）
+    output = execute_tool(name, inp, sender="lead")
 
     if tool_ctx.get("_hook_updated_reason") and isinstance(output, str):
         output += (

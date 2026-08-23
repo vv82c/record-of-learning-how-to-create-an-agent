@@ -5,11 +5,9 @@ import json
 import threading
 import time
 from pathlib import Path
-from types import SimpleNamespace
 
 from .config import INBOX_DIR, TEAM_DIR
 from .llm import MODEL, assistant_to_dict, client, to_tool_call
-from .tools import TOOL_SCHEMAS, execute_basic_tool
 
 VALID_MSG_TYPES = {
     "message",
@@ -18,6 +16,14 @@ VALID_MSG_TYPES = {
     "shutdown_response",
     "plan_approval_response",
 }
+
+# 队友可用的工具白名单（任务 4.1）：schema 与执行都走 agent_core.registry。
+# 模型只能调用 schema 曝露给它的工具（见 registry），执行前再过一道白名单兜底。
+TEAMMATE_TOOL_NAMES = [
+    "run_command", "web_fetch", "load_skill", "list_mcp_servers",
+    "read_file", "write_file", "glob", "grep",
+    "send_message", "read_inbox",
+]
 
 RUNTIME_STATUSES = {"idle", "working"}
 TERMINAL_STATUSES = {"offline", "shutdown"}
@@ -237,62 +243,15 @@ class TeammateManager:
                 has_work = False
 
     def _exec(self, sender: str, tool_name: str, args: dict) -> str:
-        if tool_name in TOOL_SCHEMAS:
-            block = SimpleNamespace(name=tool_name, input=args)
-            return execute_basic_tool(block, prefix=f"队友({sender})·")
-        if tool_name == "send_message":
-            return BUS.send(sender, args["to"], args["content"], args.get("msg_type", "message"))
-        if tool_name == "read_inbox":
-            return json.dumps(BUS.read_inbox(sender), ensure_ascii=False, indent=2)
-        return f"Error: unknown teammate tool '{tool_name}'"
+        # 函数内导入 registry：registry 在模块级导入了 team，模块级互相导入会成环
+        from .registry import execute_tool
+        if tool_name not in TEAMMATE_TOOL_NAMES:
+            return f"Error: unknown teammate tool '{tool_name}'"
+        return execute_tool(tool_name, args, sender=sender, prefix=f"队友({sender})·")
 
     def _teammate_tools(self) -> list[dict]:
-        return [
-            TOOL_SCHEMAS["run_command"],
-            TOOL_SCHEMAS["web_fetch"],
-            TOOL_SCHEMAS["load_skill"],
-            {
-                "type": "function",
-                "function": {
-                    "name": "list_mcp_servers",
-                    "description": "列出已连接的 MCP Server 及其提供的工具。",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "server": {"type": "string", "description": "指定 server 名称（可选）"}
-                        }
-                    },
-                },
-            },
-            TOOL_SCHEMAS["read_file"],
-            TOOL_SCHEMAS["write_file"],
-            TOOL_SCHEMAS["glob"],
-            TOOL_SCHEMAS["grep"],
-            {
-                "type": "function",
-                "function": {
-                    "name": "send_message",
-                    "description": "给 lead 或其他队友发送 inbox 消息。",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "to": {"type": "string"},
-                            "content": {"type": "string"},
-                            "msg_type": {"type": "string", "enum": list(VALID_MSG_TYPES)},
-                        },
-                        "required": ["to", "content"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "read_inbox",
-                    "description": "读取并清空自己的 inbox。",
-                    "parameters": {"type": "object", "properties": {}},
-                },
-            },
-        ]
+        from .registry import get_schemas
+        return get_schemas(TEAMMATE_TOOL_NAMES)
 
     def list_all(self) -> str:
         with self.lock:

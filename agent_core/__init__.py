@@ -8,6 +8,7 @@
 - todos          TodoList 计划
 - skills         技能加载
 - tools          内置工具定义与执行
+- registry       工具注册表（schema 与执行器统一登记与分发）
 - subagent       子代理调度
 - team           持久 Agent Team 与 inbox 消息总线
 - mcp_client     MCP 外部工具协议
