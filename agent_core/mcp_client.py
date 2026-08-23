@@ -150,12 +150,20 @@ def list_mcp_servers(server: str | None = None) -> str:
 def build_tool_schemas(base_tools: list[dict]) -> list[dict]:
     schemas = list(base_tools)
     for tool_name, (mcp_client, tool) in MCP_TOOL_MAP.items():
+        # mcp 1.x 的 Tool 字段别名是 inputSchema，2.0.0 起是 input_schema，两者都兼容。
+        # （3.1 验证时发现：不配置任何 MCP server 时这段代码根本不执行，
+        #   旧写法 tool.inputSchema 在 mcp 2.0.0 下一旦真用到就 AttributeError。）
+        input_schema = (
+            getattr(tool, "input_schema", None)
+            or getattr(tool, "inputSchema", None)
+            or {"type": "object", "properties": {}}
+        )
         schemas.append({
             "type": "function",
             "function": {
                 "name": tool_name,
                 "description": getattr(tool, "description", f"MCP tool '{tool.name}'") or f"MCP tool '{tool.name}'",
-                "parameters": tool.inputSchema or {"type": "object", "properties": {}},
+                "parameters": input_schema,
             },
         })
     return schemas

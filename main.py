@@ -113,6 +113,21 @@ TOOLS = [
     TOOL_SCHEMAS["write_file"],
     TOOL_SCHEMAS["glob"],
     TOOL_SCHEMAS["grep"],
+    # 任务 3.1 修复：系统提示词提到"可调用 list_mcp_servers"，但这里一直缺 schema。
+    # 没进 TOOLS 表的工具，模型根本不知道它存在，也就永远不会发起调用。
+    {
+        "type": "function",
+        "function": {
+            "name": "list_mcp_servers",
+            "description": "列出已连接的 MCP Server 及其提供的工具。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "server": {"type": "string", "description": "指定 server 名称（可选）"}
+                }
+            },
+        }
+    },
     {
         "type": "function",
         "function": {

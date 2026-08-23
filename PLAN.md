@@ -109,7 +109,7 @@
 
 ## 阶段三：修 Bug 与体验（P2）
 
-- [ ] **3.1 修复主 Agent 缺 `list_mcp_servers` schema 的 bug**
+- [x] **3.1 修复主 Agent 缺 `list_mcp_servers` schema 的 bug**（✅ 2026-08-23，配置 FastMCP demo server 端到端实测通过；连带修复 mcp 2.0.0 下 `tool.inputSchema` → `input_schema` 的潜伏 AttributeError，并新增 `examples/demo_mcp_server.py` 供复现）
   - 位置：`main.py` 的 `TOOLS` 列表（系统提示词提到了该工具但 schema 缺失）
   - 【完成标志】配置一个可用的 MCP Server 后，主 Agent 调用 `list_mcp_servers`
     能成功返回 server 与工具清单
@@ -173,3 +173,4 @@
 | 2026-08-22 | 任务 2.1 完成并勾选（单测 12/12 + 端到端实测，history 零密钥泄漏）；新增 1 条 Backlog | 阶段二推进；验证中发现 run_command 存在绕过路径 |
 | 2026-08-22 | 任务 2.2 完成并勾选；Backlog"run_command 绕过读取保护"升级并入 2.2（命令涉及敏感路径走 ask）；顺手修复大小写绕过（_match_pattern 改为大小写不敏感） | 阶段二推进；首版超时实现在 Windows 存在管道死锁（孙进程持有管道写端），改为临时文件中转 + taskkill 整树击杀后实测通过 |
 | 2026-08-23 | 任务 2.3 完成并勾选，**阶段二（安全加固）全部完成**；新增 2 条 Backlog（子代理绕过 Hook 链、curl 绕过 SSRF） | 阶段二收官；端到端实测中 Agent 自己演示了"建议用 curl 绕关防"，佐证纵深防御的必要性 |
+| 2026-08-23 | 任务 3.1 完成并勾选；连带修复 `mcp_client.build_tool_schemas` 的 `inputSchema` 兼容 bug；新增 `examples/demo_mcp_server.py` | 阶段三推进；验证暴露两层潜伏 bug——schema 缺失导致工具不可调，字段名不兼容导致配置 MCP 后启动即崩，均为"从未真正执行过的代码路径" |
