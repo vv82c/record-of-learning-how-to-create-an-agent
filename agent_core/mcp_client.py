@@ -6,9 +6,12 @@ connect_all() 会填充它们，list_mcp_servers / build_tool_schemas 都从这�
 from __future__ import annotations
 
 import asyncio
+import atexit
 import json
 import os
 import re
+import threading
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any
 
@@ -34,38 +37,119 @@ def _result_to_text(result) -> str:
     return "\n".join(parts) if parts else "(empty MCP result)"
 
 
+class _BackgroundLoop:
+    """专职后台事件循环：MCP 会话是 async 的，而 Agent 是同步多线程代码。
+
+    长连接会话必须活在一个不会退出的事件循环里——旧的 `asyncio.run()` 每次
+    调用都会新建再销毁循环，会话随之中断，于是只好每次冷启动子进程。
+    现在会话挂在常驻循环上；同步侧用 run_coroutine_threadsafe 提交协程并等结果。
+    """
+
+    def __init__(self):
+        self.loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._run, name="mcp-bg-loop", daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_forever()
+
+    def submit(self, coro, timeout: float):
+        return asyncio.run_coroutine_threadsafe(coro, self.loop).result(timeout)
+
+    def stop(self):
+        self.loop.call_soon_threadsafe(self.loop.stop)
+        self._thread.join(timeout=5)
+
+
+_BACKGROUND_LOOP: _BackgroundLoop | None = None
+_BACKGROUND_LOOP_LOCK = threading.Lock()
+
+
+def _get_background_loop() -> _BackgroundLoop:
+    global _BACKGROUND_LOOP
+    with _BACKGROUND_LOOP_LOCK:
+        if _BACKGROUND_LOOP is None:
+            _BACKGROUND_LOOP = _BackgroundLoop()
+        return _BACKGROUND_LOOP
+
+
 class MCPClient:
-    """教学版同步 MCP 客户端：每次调用临时启动一次 stdio 会话。"""
+    """长连接 MCP 客户端（任务 4.3）：会话懒建立、跨调用复用、断线自动重连。
+
+    旧版每次 list_tools / call_tool 都要"spawn 子进程 → initialize → 调用 → 关闭"。
+    长连接版把会话挂在后台事件循环上，子进程只在首次（或断线重连）时启动一次。
+    """
 
     def __init__(self, name: str, params: StdioServerParameters):
         self.name = name
         self.params = params
         self._tools: list | None = None
+        self._session: ClientSession | None = None
+        self._exit_stack: AsyncExitStack | None = None
+        self._lock = threading.Lock()  # 串行化"首次建立"与"断线重建"，避免双开进程
 
-    async def _alist_tools(self) -> list:
-        async with stdio_client(self.params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                result = await session.list_tools()
-                return list(result.tools)
+    # ---- 会话生命周期（以下两个协程运行在后台循环里）----
+    async def _open(self):
+        stack = AsyncExitStack()
+        read, write = await stack.enter_async_context(stdio_client(self.params))
+        session = await stack.enter_async_context(ClientSession(read, write))
+        await session.initialize()
+        self._exit_stack = stack
+        self._session = session
 
-    async def _acall_tool(self, name: str, arguments: dict[str, Any] | None) -> str:
-        async with stdio_client(self.params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                result = await session.call_tool(name, arguments or {})
-                return _result_to_text(result)
+    async def _close(self):
+        if self._exit_stack is not None:
+            await self._exit_stack.aclose()
+        self._exit_stack = None
+        self._session = None
 
+    def _ensure_session(self) -> None:
+        loop = _get_background_loop()
+        with self._lock:
+            if self._session is not None:
+                return
+            loop.submit(self._open(), timeout=30)
+
+    def _drop_session(self) -> None:
+        loop = _get_background_loop()
+        with self._lock:
+            if self._exit_stack is not None:
+                try:
+                    loop.submit(self._close(), timeout=10)
+                except Exception:
+                    pass  # 进程已死时优雅关闭失败是预期内的，直接弃用
+            self._session = None
+            self._exit_stack = None
+            self._tools = None  # 重连后工具清单可能变化，清缓存重新拉取
+
+    # ---- 对外接口（签名与旧版一致）----
     def list_tools(self) -> list:
-        if self._tools is None:
-            self._tools = asyncio.run(self._alist_tools())
+        if self._tools is not None:
+            return list(self._tools)
+        self._ensure_session()
+        try:
+            result = _get_background_loop().submit(self._session.list_tools(), timeout=30)
+        except Exception:
+            self._drop_session()
+            raise
+        self._tools = list(result.tools)
         return list(self._tools)
 
     def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> str:
-        return asyncio.run(self._acall_tool(name, arguments))
+        self._ensure_session()
+        try:
+            result = _get_background_loop().submit(
+                self._session.call_tool(name, arguments or {}), timeout=120,
+            )
+        except Exception:
+            # 会话大概率已坏：丢弃，下次调用自动重建（懒重连，避免这里盲目重试）
+            self._drop_session()
+            raise
+        return _result_to_text(result)
 
     def stop(self) -> None:
-        pass
+        self._drop_session()
 
 
 class MCPConfig:
@@ -115,6 +199,18 @@ def load_mcp_clients(registry: dict, config_path: Path) -> dict[str, MCPClient]:
 
 MCP_CLIENTS: dict[str, MCPClient] = {}
 MCP_TOOL_MAP: dict[str, tuple[MCPClient, Any]] = {}
+
+
+def _cleanup_clients() -> None:
+    """进程退出前关闭长连接会话，避免 server 子进程残留。"""
+    for client in MCP_CLIENTS.values():
+        try:
+            client.stop()
+        except Exception:
+            pass
+
+
+atexit.register(_cleanup_clients)
 
 
 def connect_all(config_path: Path) -> dict[str, MCPClient]:
