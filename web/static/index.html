@@ -68,32 +68,9 @@
     </section>
   </aside>
 
-  <!-- ═══════════ 金銮殿 · 对话区 ═══════════ -->
+  <!-- ═══════════ 金銮殿 · 对话区（B2 起由 app.js 事件流动态渲染） ═══════════ -->
   <main class="throne" id="chat">
-
-    <!-- B1 静态示例：朱批（皇上说的话，右对齐朱砂短卡） -->
-    <div class="zhu-pi">查查 Ox Alpha 的跑分榜单</div>
-
-    <!-- B1 静态示例：内务府工具卡（可折叠） -->
-    <details class="tool-card">
-      <summary><span class="arrow">▸</span> 内务府 · read_file main.py <span class="ok">✓</span></summary>
-      <pre>#!/usr/bin/env python3
-"""main.py — 终端入口……（工具输出示意，B2 起显示真实结果）"""</pre>
-    </details>
-    <details class="tool-card" open>
-      <summary><span class="arrow">▾</span> 小太监 #3 · 东厂出巡 <span class="ok">✓</span></summary>
-      <pre>回禀总管：榜单已查得三项……（子代理回禀示意）</pre>
-    </details>
-
-    <!-- B1 静态示例：奏折（Agent 回复，卷轴长卡） -->
-    <article class="memorial">
-      <div class="memorial-body">
-        奉天承运皇帝诏曰：<br><br>
-        启禀皇上，Ox Alpha 乃 OpenRouter 上匿名现身的新模型，榜单成绩已着东厂小太监查得三项，
-        现将要点条陈于后……（B1 静态示例文——B2 起此处逐字流式浮现圣裁内容）
-      </div>
-      <div class="memorial-foot">老奴叩禀</div>
-    </article>
+    <div class="notice">（金銮殿已备，老奴候旨——下方传旨即可开始）</div>
   </main>
 </div>
 
@@ -115,5 +92,6 @@
   <button class="btn btn-send" type="button" id="btn-send">传 旨</button>
 </footer>
 
+<script src="app.js" defer></script>
 </body>
 </html>

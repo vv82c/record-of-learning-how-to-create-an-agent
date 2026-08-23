@@ -192,6 +192,9 @@ body {
 .tool-card .ok { color: var(--qingyu); }
 
 /* ═══════════ 圣旨待批模态 ═══════════ */
+/* 关键：hidden 属性会被下面的 display:flex 覆盖（作者样式 > UA 样式），
+   B2 交互测试抓过坑——半透明遮罩罩住全屏，截图看不出来但拦截所有点击 */
+.veil[hidden] { display: none; }
 .veil {
   position: fixed; inset: 0; z-index: 50;
   background: rgba(10, 5, 3, .72); backdrop-filter: blur(2px);
@@ -239,6 +242,24 @@ body {
 }
 .decree-bar textarea:focus { border-color: var(--liujin);
                              box-shadow: 0 0 10px rgba(212,175,55,.25); }
+
+/* ═══════════ B2：动态渲染补充 ═══════════ */
+/* 系统提示条（接驾/断线/门禁等） */
+.notice {
+  align-self: center; font-size: .82rem; color: #9b855c;
+  border: 1px dotted rgba(155,133,92,.5); border-radius: 999px;
+  padding: 3px 14px; letter-spacing: .08em;
+}
+.notice.warn { color: #d9a253; border-color: rgba(217,162,83,.6); }
+
+/* 工具卡状态角标与折叠箭头 */
+.tool-card .arrow { display: inline-block; transition: transform .15s; }
+.tool-card[open] > summary .arrow { transform: rotate(90deg); }
+.tool-card .state { margin-left: 6px; font-size: .8rem; }
+.tool-card .state.ok { color: var(--qingyu); }
+.tool-card .state.blocked { color: var(--zhusha); }
+
+.btn:disabled { cursor: not-allowed; }
 
 /* ═══════════ 窗口缩放：窄屏收偏殿，布局不塌 ═══════════ */
 @media (max-width: 860px) {
