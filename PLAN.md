@@ -157,7 +157,7 @@
     熔断与轮数上限的回传都必须带原因与统计，替换"未能在限定回合内办妥差事"固定串
   - 【完成标志】构造只能失败的任务（抓取不可达地址 192.0.2.x），子代理在远小于回合上限时收兵，
     回传包含"连续 N 次"失败字样；正常任务（echo 一类）不受影响
-- [ ] **5.2 子代理执行日志落盘**
+- [x] **5.2 子代理执行日志落盘**（✅ 2026-08-24，单测：start/tool/end 事件结构完整；集成：熔断任务日志含 3 条失败 tool 事件与 outcome=circuit_breaker，正常任务 outcome=done）
   - 要求：每次派遣把 start / tool / end 事件写入
     `memory/subagent_logs/<时间>-<身份>-<随机>.jsonl`，含每次工具调用成败与结果摘要、
     最终 outcome（done / circuit_breaker / max_turns）

@@ -1,8 +1,13 @@
 """子代理：独立 message loop 的临时派差，办完只回传总结，不污染主上下文。"""
 from __future__ import annotations
 
+import json
 import os
+import uuid
+from datetime import datetime
+from pathlib import Path
 
+from .config import SUBAGENT_LOG_DIR
 from .llm import MODEL, assistant_to_dict, client, to_tool_call
 from .tools import TOOL_SCHEMAS, execute_basic_tool
 
@@ -121,6 +126,35 @@ def resolve_subagent_type(agent_type: str) -> str:
 _SUBAGENT_COUNTER = 0
 
 
+class _RunLogger:
+    """子代理执行日志（任务 5.2）：一次派遣一个 jsonl，记 start/tool/end 三类事件。
+
+    oxalpha 事件里子代理内部完全不可观测——失败只能靠主对话记录反推。
+    事件字段：ts / event /（start: agent_type, task, purpose）（tool: turn, tool, ok,
+    result 前 200 字）（end: outcome=done|circuit_breaker|max_turns, turns_used, ok, fail,
+    summary 前 200 字）。目录 memory/subagent_logs/（已被 .gitignore 的 memory/ 覆盖）。
+    """
+
+    def __init__(self, agent_type: str, task: str, purpose: str):
+        SUBAGENT_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        self.path = SUBAGENT_LOG_DIR / (
+            f"{datetime.now():%Y%m%d-%H%M%S}-{agent_type}-{uuid.uuid4().hex[:6]}.jsonl"
+        )
+        self.log(event="start", agent_type=agent_type, task=task[:500], purpose=purpose)
+
+    def log(self, **kw) -> None:
+        kw["ts"] = datetime.now().isoformat(timespec="seconds")
+        with self.path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(kw, ensure_ascii=False) + "\n")
+
+    def tool(self, turn: int, name: str, ok: bool, result: str) -> None:
+        self.log(event="tool", turn=turn, tool=name, ok=ok, result=str(result)[:200])
+
+    def end(self, outcome: str, turns_used: int, ok: int, fail: int, summary: str) -> None:
+        self.log(event="end", outcome=outcome, turns_used=turns_used,
+                 ok=ok, fail=fail, summary=str(summary)[:200])
+
+
 def run_subagent(task: str, agent_type: str = "neiguan_yingzao",
                  purpose: str = "", max_turns: int | None = None) -> str:
     """启动一个独立 message loop 的子代理，跑完后只返回最终文本给主 agent。
@@ -138,6 +172,8 @@ def run_subagent(task: str, agent_type: str = "neiguan_yingzao",
 
     print(f"\n[派遣小太监 #{_SUBAGENT_COUNTER}({spec['title']} / {agent_type})]: {label}")
     print("  ┌── subagent context start ──")
+
+    logger = _RunLogger(agent_type, task, purpose)
 
     messages = [{"role": "user", "content": task}]
     consecutive_failures = 0
@@ -157,6 +193,7 @@ def run_subagent(task: str, agent_type: str = "neiguan_yingzao",
             final = msg.content or ""
             print(f"  └── subagent context end (内部 {turn + 1} 轮，回传 {len(final)} 字) ──")
             print(f"[小太监回禀]: {final}\n")
+            logger.end(outcome="done", turns_used=turn + 1, ok=ok_count, fail=fail_count, summary=final)
             return final
 
         for tc in msg.tool_calls:
@@ -167,21 +204,26 @@ def run_subagent(task: str, agent_type: str = "neiguan_yingzao",
                 "tool_call_id": tc.id,
                 "content": content,
             })
-            if _is_tool_failure(content):
+            failed = _is_tool_failure(content)
+            if failed:
                 consecutive_failures += 1
                 fail_count += 1
             else:
                 consecutive_failures = 0
                 ok_count += 1
+            logger.tool(turn=turn + 1, name=block.name, ok=not failed, result=content)
 
         # 熔断检查放在整批工具执行完之后：协议要求每个 tool_call 都要有配对结果
         if consecutive_failures >= FAIL_BUDGET:
             text = _circuit_breaker_message(consecutive_failures, turn + 1)
             print(f"  └── 连续 {consecutive_failures} 次工具失败，触发熔断提前收兵（第 {turn + 1} 轮）──\n")
             print(f"[小太监回禀]: {text}\n")
+            logger.end(outcome="circuit_breaker", turns_used=turn + 1,
+                       ok=ok_count, fail=fail_count, summary=text)
             return text
 
     text = _max_turns_message(turns, ok_count, fail_count)
     print(f"  └── subagent context end (达到 {turns} 轮上限，成功 {ok_count} / 失败 {fail_count}) ──\n")
     print(f"[小太监回禀]: {text}\n")
+    logger.end(outcome="max_turns", turns_used=turns, ok=ok_count, fail=fail_count, summary=text)
     return text
