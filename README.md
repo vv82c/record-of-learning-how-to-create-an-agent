@@ -15,14 +15,18 @@
 
 ## ✨ 实现了什么
 
-- **工具调用**：读/写文件、执行命令、抓网页、glob/grep 搜索、加载技能
+- **工具调用**：读/写文件、执行命令、抓网页、glob/grep 搜索、加载技能（统一注册表，一处注册全端可用）
 - **三层记忆 + 上下文压缩**：长期记忆 `MEMORY.md`、用户画像 `USER.md`、每日情景记忆；对话过长时自动把旧消息沉淀进记忆文件
+- **长期记忆 RAG 检索**：记忆按当前话题检索 Top-K 注入，system prompt 体积与记忆总量解耦
 - **TodoList 计划**：多步骤任务先拆计划再逐步执行
 - **技能系统**：从 `skills/` 目录加载 `SKILL.md`（YAML frontmatter）
-- **子代理调度**：5 种预设身份（按工具白名单分级授权），支持并发派遣
-- **持久 Agent Team**：有名有姓的队友线程 + 文件收件箱消息总线
-- **MCP 外部工具**：通过 stdio 连接 MCP Server，动态注册外部工具
-- **Hooks 生命周期**：Event → Matcher → Handler → Decision 四层模型，内置安全策略、审计日志、输出截断、Stop 质量门禁
+- **子代理调度**：5 种预设身份（按工具白名单分级授权），支持并发派遣；连续失败自动熔断收兵，执行日志落盘可归因
+- **持久 Agent Team**：有名有姓的队友线程 + 文件收件箱消息总线；队友上下文自动压缩防膨胀
+- **MCP 外部工具**：长连接复用子进程、断线自动重连
+- **Hooks 生命周期**：Event → Matcher → Handler → Decision 四层模型，内置安全策略（敏感文件管控/危险命令拦截/SSRF 防护）、审计日志、输出截断、Stop 质量门禁
+- **流式输出**：回答逐 token 上屏，工具调用碎片按 index 拼装
+- **多会话管理**：`/new` 开新会话、`/resume` 跨进程恢复；会话全保真存储
+- **人格可配置**：`templates/persona/*.md` 模板化人设，`/persona` 运行时切换
 
 ## 🚀 快速开始
 
@@ -44,21 +48,25 @@ python main.py
 ## 📁 项目结构
 
 ```
-PLAN.md               # 完善计划书：16 项任务的验收标准、勾选纪律与变更记录
+PLAN.md               # 完善计划书：19 项任务的验收标准、勾选纪律与变更记录
 SUMMARY.md            # 学习总结：知识点、自测题（含参考要点）、踩坑实录、验证方法学
 LEARNING.md           # 个人学习笔记与阶段复盘
 main.py               # 主入口：REPL 主循环、工具分发、子代理并发调度
 agent_core/
   ├─ llm.py           # LLM 客户端与 OpenAI 消息适配
-  ├─ tools.py         # 内置工具定义与执行
+  ├─ tools.py         # 内置工具定义与执行（含 SSRF 防护）
+  ├─ registry.py      # 工具注册表：schema 与执行器统一登记
   ├─ memory.py        # 记忆存储
   ├─ memory_compact.py# 上下文压缩
+  ├─ memory_rag.py    # 长期记忆 Top-K 检索
+  ├─ sessions.py      # 多会话管理（全保真存储与恢复）
   ├─ todos.py         # TodoList 计划
   ├─ skills.py        # 技能加载
-  ├─ subagent.py      # 子代理调度
+  ├─ subagent.py      # 子代理调度（熔断 + 执行日志）
   ├─ team.py          # 持久团队与消息总线
-  ├─ mcp_client.py    # MCP 客户端
+  ├─ mcp_client.py    # MCP 客户端（长连接）
   └─ hooks.py         # Hook 生命周期框架
-templates/            # 提示词模板（记忆压缩模板等）
+templates/            # 提示词模板（记忆压缩、人格 persona 等）
+examples/             # 示例：最小 MCP Server
 memory/               # 运行时记忆数据（不上传，自动生成）
 ```
