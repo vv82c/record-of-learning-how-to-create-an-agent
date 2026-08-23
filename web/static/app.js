@@ -9,15 +9,28 @@
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
-  const chat = $("chat"), input = $("input"), btnSend = $("btn-send"), lamp = $("lamp");
+  const chat = $("chat"), input = $("input"), btnSend = $("btn-send"),
+        btnStop = $("btn-stop"), btnBack = $("btn-back"), lamp = $("lamp");
 
   let ws = null;
   let activeMemorial = null;   // 正在流式渲染的奏折正文
   let pendingTools = [];       // 已 tool_start 未 tool_end 的卡片（内核顺序执行，按名配对）
   let busy = false;
 
+  /* ---- B3：回看暂停——用户上翻即停跟随，回到底部自动恢复 ---- */
+  let followTail = true;
+  const NEAR_BOTTOM = 120;     // 距底不足该值视为"在跟最新"
+  chat.addEventListener("scroll", () => {
+    const near = chat.scrollHeight - chat.scrollTop - chat.clientHeight < NEAR_BOTTOM;
+    followTail = near;
+    btnBack.hidden = near;
+  });
+  btnBack.addEventListener("click", () => {
+    chat.scrollTop = chat.scrollHeight;
+  });
+
   /* ---- 渲染小件 ---- */
-  function scrollBottom() { chat.scrollTop = chat.scrollHeight; }
+  function scrollBottom() { if (followTail) chat.scrollTop = chat.scrollHeight; }
 
   function addNode(el) { chat.appendChild(el); scrollBottom(); return el; }
 
@@ -35,10 +48,62 @@
     body.className = "memorial-body";
     const foot = document.createElement("div");
     foot.className = "memorial-foot";
-    foot.textContent = "老奴叩禀";
+    const sign = document.createElement("span");
+    sign.textContent = "老奴叩禀";
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "btn-copy";
+    copyBtn.textContent = "誊抄";
+    foot.append(sign, copyBtn);
     art.append(body, foot);
     activeMemorial = body;
     addNode(art);
+  }
+
+  /* ---- B3：誊抄（事件委托，动态卡片无需逐个绑） ---- */
+  chat.addEventListener("click", (e) => {
+    const btn = e.target.closest(".btn-copy");
+    if (!btn) return;
+    const text = btn.closest(".memorial").querySelector(".memorial-body").textContent;
+    copyText(text).then((ok) => {
+      btn.textContent = ok ? "已誊抄 ✓" : "誊抄失败";
+      setTimeout(() => { btn.textContent = "誊抄"; }, 1600);
+    });
+  });
+
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; }
+    catch {
+      const ta = document.createElement("textarea");   // 兼容回退
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    }
+  }
+
+  /* ---- B3：差事灯笼实时联动 ---- */
+  function renderTodos(list) {
+    const ul = $("todo-list");
+    ul.replaceChildren();
+    if (!Array.isArray(list) || list.length === 0) {
+      const li = document.createElement("li");
+      li.className = "hint";
+      li.textContent = "（暂无差事）";
+      ul.appendChild(li);
+      return;
+    }
+    const mark = { pending: ["○", "todo-pending"], in_progress: ["◐", "todo-doing"],
+                   completed: ["◉", "todo-done"] };
+    for (const t of list) {
+      const li = document.createElement("li");
+      const [icon, cls] = mark[t.status] || mark.pending;
+      li.className = cls;
+      li.textContent = `${icon} ${t.content}`;
+      ul.appendChild(li);
+    }
   }
 
   function renderToken(text) {
@@ -114,9 +179,9 @@
       case "hook_ask":        renderNotice(`[需朱批] ${ev.reason}（圣旨弹窗 C1 上线，未批将超时驳回）`, "warn"); break;
       case "hook_decision":   renderNotice(`[门禁] ${ev.action}：${ev.reason}`); break;
       case "session":         break;    // C2：偏殿名册
-      case "todos":           break;    // B3：差事灯笼
+      case "todos":           renderTodos(ev.todos); break;   // B3：差事灯笼
       case "done":
-      case "idle":            setLamp("on", "● 当值"); busy = false; refreshSend(); break;
+      case "idle":            setLamp("on", "● 当值"); busy = false; refreshSend(); btnStop.hidden = true; break;
       case "pong":            break;
     }
   }
@@ -135,13 +200,23 @@
     input.value = "";
     busy = true;
     setLamp("busy", "● 行走中");
+    btnStop.hidden = false;
     refreshSend();
   }
 
-  /* ---- 连接与断线（B2：提示 + 每 3 秒自动重连） ---- */
+  /* ---- B3：请旨叫停（在途流断流返回部分内容，工具批后收束） ---- */
+  btnStop.addEventListener("click", () => {
+    if (!busy || !ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "stop" }));
+    renderNotice("（已请旨叫停，待总管收束……）");
+  });
+
+  /* ---- 连接与断线（B2：提示 + 每 3 秒自动重连；B3：断线提示去重） ---- */
+  let offlineNotified = false;
   function connect() {
     ws = new WebSocket(`ws://${location.host}/ws`);
     ws.onopen = () => {
+      offlineNotified = false;
       renderNotice("（已接驾，老奴候旨——）");
       setLamp("on", "● 当值");
       refreshSend();
@@ -151,7 +226,10 @@
     };
     ws.onclose = () => {
       setLamp("", "● 离线");
-      renderNotice("（连接断开，每 3 秒自动重连……重连后为新会话，旧对话可在偏殿名册找回）", "warn");
+      if (!offlineNotified) {
+        renderNotice("（连接断开，每 3 秒自动重连……重连后为新会话，旧对话可在偏殿名册找回）", "warn");
+        offlineNotified = true;
+      }
       refreshSend();
       setTimeout(connect, 3000);
     };

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Emperor Agent · 金銮殿</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=b3">
 </head>
 <body>
 
@@ -44,11 +44,9 @@
 
     <section class="panel">
       <h2>◈ 差事灯笼</h2>
-      <!-- B1 静态示例：B3 起吃 todos 事件 -->
+      <!-- B3 起吃 todos 事件实时点亮 -->
       <ul class="todos" id="todo-list">
-        <li class="todo-done">◉ 查榜单</li>
-        <li class="todo-doing">◐ 汇总成文</li>
-        <li class="todo-pending">○ 回禀皇上</li>
+        <li class="hint">（暂无差事，接到差事后此处点亮）</li>
       </ul>
     </section>
 
@@ -69,9 +67,13 @@
   </aside>
 
   <!-- ═══════════ 金銮殿 · 对话区（B2 起由 app.js 事件流动态渲染） ═══════════ -->
-  <main class="throne" id="chat">
-    <div class="notice">（金銮殿已备，老奴候旨——下方传旨即可开始）</div>
-  </main>
+  <div class="throne-wrap">
+    <main class="throne" id="chat">
+      <div class="notice">（金銮殿已备，老奴候旨——下方传旨即可开始）</div>
+    </main>
+    <!-- B3：回看暂停后出现的"回到最新" -->
+    <button id="btn-back" class="btn-back" type="button" hidden>▼ 回到最新</button>
+  </div>
 </div>
 
 <!-- ═══════════ 圣旨待批（模态，B1 隐藏备用，C1 接线） ═══════════ -->
@@ -89,9 +91,11 @@
 <!-- ═══════════ 传旨输入栏 ═══════════ -->
 <footer class="decree-bar">
   <textarea id="input" rows="1" placeholder="传旨……（Enter 传旨，Shift+Enter 换行）"></textarea>
+  <button class="btn btn-stop" type="button" id="btn-stop" hidden>叫 停</button>
   <button class="btn btn-send" type="button" id="btn-send">传 旨</button>
 </footer>
 
-<script src="app.js" defer></script>
+<!-- 资源带版本号：改版必换 v 参数，浏览器缓存不再咬住旧文件（B3 踩坑两次后的根治） -->
+<script src="app.js?v=b3" defer></script>
 </body>
 </html>

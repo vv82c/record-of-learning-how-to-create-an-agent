@@ -126,6 +126,9 @@ async def ws_endpoint(websocket: WebSocket):
                 out_queue.put_nowait({"type": "pong"})
             elif kind == "confirm":
                 confirmer.resolve(bool(msg.get("approved")))
+            elif kind == "stop":
+                if busy.is_set():
+                    runner.request_stop()   # B3 请旨叫停：在途流断流，工具批后收束
             elif kind == "send":
                 if busy.is_set():
                     out_queue.put_nowait({"type": "error", "message": "上一条传旨仍在办理中，请稍候"})

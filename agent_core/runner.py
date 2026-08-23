@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -124,7 +125,7 @@ RETRYABLE_ERRORS = (APIConnectionError, RateLimitError, InternalServerError)
 MAX_LLM_RETRIES = 3
 
 
-def call_llm(messages: list[dict], tools: list[dict], on_event=None):
+def call_llm(messages: list[dict], tools: list[dict], on_event=None, stop_event=None):
     """带异常兜底的流式 LLM 调用：可重试错误指数退避，其余失败返回 None（不抛异常）。"""
     delay = 1.0
     last_error: Exception | None = None
@@ -137,7 +138,7 @@ def call_llm(messages: list[dict], tools: list[dict], on_event=None):
                 tools=tools,
                 stream=True,
             )
-            return _consume_stream(stream, on_event)
+            return _consume_stream(stream, on_event, stop_event)
         except RETRYABLE_ERRORS as exc:
             last_error = exc
             if attempt < MAX_LLM_RETRIES:
@@ -155,9 +156,10 @@ def call_llm(messages: list[dict], tools: list[dict], on_event=None):
     return None
 
 
-def _consume_stream(stream, on_event=None):
+def _consume_stream(stream, on_event=None, stop_event=None):
     """消费流式响应：token 增量以事件发出；tool_calls 增量按 index 拼接。
 
+    stop_event 置位时立刻断流，已收到的内容作为部分回复返回（B3 请旨叫停）。
     返回与整段响应同构的对象（choices[0].message + streamed 标记），上层零感知。
     """
     content_parts: list[str] = []
@@ -165,6 +167,8 @@ def _consume_stream(stream, on_event=None):
     header_sent = False
     try:
         for chunk in stream:
+            if stop_event is not None and stop_event.is_set():
+                break
             choices = getattr(chunk, "choices", None)
             if not choices:
                 continue
@@ -233,7 +237,13 @@ class SessionRunner:
         self.persona = persona or os.environ.get("AGENT_PERSONA", DEFAULT_PERSONA)
         self.history: list[dict] = []
         self.session_id = SESSIONS.new_session()
+        self._stop = threading.Event()
         self._emit({"type": "session", "id": self.session_id})
+
+    def request_stop(self) -> None:
+        """请旨叫停（B3）：在途 LLM 流立即断流返回部分内容；在途工具不硬杀，
+        本批执行完后收束。send() 开始时自动清旗。"""
+        self._stop.set()
 
     # ---- 对外：会话操作（终端斜杠命令与 UI 面板共用）----
     def new_session(self) -> str:
@@ -260,6 +270,7 @@ class SessionRunner:
 
     # ---- 对外：对话入口 ----
     def send(self, user_text: str) -> str:
+        self._stop.clear()
         user_message = {"role": "user", "content": user_text}
         self.history.append(user_message)
         self.remember(user_message)
@@ -327,6 +338,12 @@ class SessionRunner:
     def _run_loop(self) -> str:
         stop_gate_retries = 0
         while True:
+            # B3 请旨叫停：工具批之间的检查点（流中断的检查点在 _consume_stream 里）
+            if self._stop.is_set():
+                text = "（皇上叫停，本轮已中止。）"
+                self._assistant_say(text)
+                return text
+
             latest_user = next(
                 (m.get("content") for m in reversed(self.history) if m.get("role") == "user"), ""
             )
@@ -349,6 +366,7 @@ class SessionRunner:
                 [{"role": "system", "content": turn_ctx["system_prompt"]}] + self.history,
                 build_tool_schemas(get_schemas()),
                 on_event=self._emit,
+                stop_event=self._stop,
             )
             if response is None:
                 return ""  # 错误信息已通过 error 事件发出
