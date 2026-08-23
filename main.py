@@ -340,21 +340,25 @@ MAX_LLM_RETRIES = 3
 
 
 def call_llm(messages: list[dict], tools: list[dict]):
-    """带异常兜底的 LLM 调用：可重试错误指数退避重试，其余失败返回 None（不抛异常）。
+    """带异常兜底的流式 LLM 调用（任务 1.4 兜底 + 任务 3.2 流式）。
 
-    失败时打印原因并返回 None，由调用方决定如何继续——
-    主循环收到 None 后放弃本轮、回到输入提示符，保证会话不因一次 API 失败而崩溃退出。
+    - 请求阶段：可重试错误指数退避重试，其余失败打印原因返回 None；
+    - 流式阶段：文本增量实时上屏，tool_calls 增量静默拼接。
+      传输中断不重试——半截文字已经打给用户看了，重试会造成重复输出——返回 None 放弃本轮。
+    返回与整段响应同构的对象，主循环其余代码不感知流式/整段差异。
     """
     delay = 1.0
     last_error: Exception | None = None
     for attempt in range(1, MAX_LLM_RETRIES + 1):
         try:
-            return client.chat.completions.create(
+            stream = client.chat.completions.create(
                 model=MODEL,
                 max_tokens=20000,
                 messages=messages,
                 tools=tools,
+                stream=True,
             )
+            return _consume_stream(stream)
         except RETRYABLE_ERRORS as exc:
             last_error = exc
             if attempt < MAX_LLM_RETRIES:
@@ -367,6 +371,63 @@ def call_llm(messages: list[dict], tools: list[dict]):
             return None
     print(f"\n[LLM 连续 {MAX_LLM_RETRIES} 次调用失败，本轮已放弃，可继续输入]: {last_error}\n")
     return None
+
+
+def _consume_stream(stream):
+    """消费流式响应：文本增量实时打印；tool_calls 增量按 index 拼接（任务 3.2）。
+
+    流式协议里 content 是一小段一小段的文本；tool_calls 更碎——
+    id/name 通常只出现在第一个片段，arguments 被切成任意多段陆续到来，
+    多个工具调用靠 delta.tool_calls[i].index 区分归属。
+    返回对象模仿整段响应的形状（choices[0].message），让上层代码零改动。
+    """
+    content_parts: list[str] = []
+    tool_acc: dict[int, dict] = {}
+    header_printed = False
+    try:
+        for chunk in stream:
+            choices = getattr(chunk, "choices", None)
+            if not choices:
+                continue
+            delta = choices[0].delta
+            if delta is None:
+                continue
+            piece = getattr(delta, "content", None)
+            if piece:
+                if not header_printed:
+                    print("[Agent回答]: ", end="", flush=True)
+                    header_printed = True
+                print(piece, end="", flush=True)
+                content_parts.append(piece)
+            for tc in getattr(delta, "tool_calls", None) or []:
+                slot = tool_acc.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
+                if tc.id:
+                    slot["id"] = tc.id
+                fn = getattr(tc, "function", None)
+                if fn is not None:
+                    if fn.name:
+                        slot["name"] += fn.name
+                    if fn.arguments:
+                        slot["arguments"] += fn.arguments
+    except Exception as exc:
+        print(f"\n[LLM 流式传输中断，本轮已放弃，可继续输入]: {exc}\n")
+        return None
+    finally:
+        if header_printed:
+            print("\n")
+
+    message = SimpleNamespace(
+        content="".join(content_parts) or None,
+        tool_calls=[
+            SimpleNamespace(
+                id=slot["id"],
+                type="function",
+                function=SimpleNamespace(name=slot["name"], arguments=slot["arguments"]),
+            )
+            for _, slot in sorted(tool_acc.items())
+        ] or None,
+    )
+    return SimpleNamespace(choices=[SimpleNamespace(message=message)], streamed=True)
 
 
 def main():
@@ -469,8 +530,9 @@ def main():
                     stop_gate_retries += 1
                     continue
                 reply = stop_ctx.get("reply", reply)
-                # ---- 打印回答 ----
-                print(f"[Agent回答]: {reply}\n")
+                # ---- 打印回答 ----（流式模式下内容已实时上屏并换行，不再重复打印）
+                if not getattr(response, "streamed", False):
+                    print(f"[Agent回答]: {reply}\n")
                 # ---- 记忆压缩：history 超阈值时把旧消息沉淀进记忆文件 ----
                 history = memory_compact.compact_history(history, client, MODEL, MEMORY)
                 if todos_mod.TODOS:
