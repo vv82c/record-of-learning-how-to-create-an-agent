@@ -64,6 +64,14 @@ class BlockedAddressError(Exception):
     """SSRF 防护：目标解析到本机/内网/保留地址。"""
 
 
+class DNSResolveError(BlockedAddressError):
+    """域名解析失败：域名不存在、DNS 受限或未联网。
+
+    继承 BlockedAddressError 是为了让既有的 except 捕获点继续工作，
+    但语义上它不是"拦截"——web_fetch 会用独立文案区分（任务 5.3）。
+    """
+
+
 def _is_blocked_address(ip_str: str) -> bool:
     try:
         addr = ipaddress.ip_address(ip_str)
@@ -91,7 +99,7 @@ def assert_url_allowed(url: str) -> None:
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror as exc:
-        raise BlockedAddressError(f"主机名解析失败：{host}（{exc}）")
+        raise DNSResolveError(f"主机名解析失败：{host}（{exc}）")
     for info in infos:
         ip = info[4][0]
         if _is_blocked_address(ip):
@@ -113,10 +121,25 @@ def web_fetch(url: str, extract_mode: str = "text", max_chars: int = 8000) -> st
         opener = urllib.request.build_opener(_SSRFRedirectHandler)
         with opener.open(req, timeout=10) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
+    except DNSResolveError as e:
+        # 解析失败 ≠ 被拦截（任务 5.3）：域名可能不存在，也可能 DNS 受限/未联网。
+        # 错误信息附带提示，引导模型换源而不是反复撞同一个域名。
+        return (
+            f"Error: {e}\n"
+            "[提示] 域名解析失败：可能域名不存在、DNS 受限或未联网；建议改用其他可达域名再试。"
+        )
     except BlockedAddressError as e:
         return f"Error: SSRF 防护已拦截：{e}"
     except Exception as e:
-        return f"Error fetching {url}: {e}"
+        text = f"Error fetching {url}: {e}"
+        if "timed out" in str(e).lower():
+            # oxalpha 事件复盘：直连境外站大量超时时，模型只会瞎换 URL。
+            # 给出明确提示，引导它切换到当前网络可达的源。
+            text += (
+                "\n[提示] 连接超时：目标站点在当前网络不可达（境外站点未挂代理时常见），"
+                "建议换可达源（如 bing.com 搜索或国内站点）再试，不要反复撞同一批境外域名。"
+            )
+        return text
 
     if extract_mode == "text":
         parser = _TextExtractor()
