@@ -6,8 +6,10 @@ import threading
 import time
 from pathlib import Path
 
+from . import memory_compact
 from .config import INBOX_DIR, TEAM_DIR
 from .llm import MODEL, assistant_to_dict, client, to_tool_call
+from .memory import MEMORY
 
 VALID_MSG_TYPES = {
     "message",
@@ -241,6 +243,16 @@ class TeammateManager:
                 BUS.send(name, "lead", f"队友 {name} 达到本轮 20 次调用上限，已暂停等待下一步指令。")
                 self._set_status(name, "idle")
                 has_work = False
+
+            # 任务 4.2：本轮差事结束后压缩 messages，防止长期队友的上下文无限膨胀。
+            # 写入策略：只追加 episode（带队友名前缀），不回写共享的 MEMORY.md / USER.md。
+            # 注意 team.py 用 `from . import memory_compact` 按模块引用调用，
+            # 便于测试时替换（monkey patch）观察调用。
+            messages = memory_compact.compact_history(
+                messages, client, MODEL, MEMORY,
+                update_memory_files=False,
+                episode_prefix=f"[队友 {name}] ",
+            )
 
     def _exec(self, sender: str, tool_name: str, args: dict) -> str:
         # 函数内导入 registry：registry 在模块级导入了 team，模块级互相导入会成环

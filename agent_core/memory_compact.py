@@ -70,11 +70,17 @@ def compact_history(
     memory_store,
     max_tokens: int = 3000,
     force: bool = False,
+    update_memory_files: bool = True,
+    episode_prefix: str = "",
 ) -> list[dict]:
     """history 超过阈值时压缩：旧消息沉淀进记忆文件，只保留最近一段。
 
     压缩失败时不抛异常，原样返回 history（宁可不压缩，不能中断对话）。
-    force=True 供 /compact 手动触发：跳过阈值检查，能压多少压多少。
+    - force=True 供 /compact 手动触发：跳过阈值检查，能压多少压多少；
+    - update_memory_files=False 供队友线程使用（任务 4.2）：只追加 episode，
+      不回写 MEMORY.md / USER.md——队友只见过自己那部分世界，
+      整份重写共享记忆会冲掉主 Agent 的积累；
+    - episode_prefix：情景记忆条目的来源标记（如 "[队友 alice] "）。
     """
     if not force and len(history) <= COMPACT_AFTER_MESSAGES:
         return history
@@ -119,11 +125,12 @@ def compact_history(
     updated_user = _extract_tag(text, "updated_user")
 
     if episode:
-        _append_episode(memory_store, episode)
-    if updated_memory:
-        memory_store.write_memory(updated_memory)
-    if updated_user:
-        memory_store.write_user(updated_user)
+        _append_episode(memory_store, f"{episode_prefix}{episode}" if episode_prefix else episode)
+    if update_memory_files:
+        if updated_memory:
+            memory_store.write_memory(updated_memory)
+        if updated_user:
+            memory_store.write_user(updated_user)
 
     print(f"[记忆已压缩]: old={len(old_messages)} recent={len(recent_messages)}")
     return recent_messages
