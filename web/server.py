@@ -30,7 +30,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from agent_core.config import MCP_CONFIG_PATH
 from agent_core.mcp_client import connect_all
@@ -53,11 +53,6 @@ app = FastAPI(title="Emperor Agent", lifespan=lifespan)
 @app.get("/api/health")
 async def health():
     return {"ok": True, "app": "Emperor Agent"}
-
-
-@app.get("/")
-async def index():
-    return FileResponse(STATIC_DIR / "index.html")
 
 
 class WSConfirmer:
@@ -155,6 +150,12 @@ async def ws_endpoint(websocket: WebSocket):
         pass
     finally:
         pump_task.cancel()
+
+
+# 静态目录挂到根（html=True 时 "/" 自动伺服 index.html）。
+# 注意必须在所有装饰器路由（含上面的 /ws）之后挂载——Starlette 按注册顺序匹配。
+# B1 视觉验收抓过坑：只给 "/" 加 FileResponse 而 style.css 404，页面裸奔只剩内联 SVG。
+app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="web")
 
 
 if __name__ == "__main__":

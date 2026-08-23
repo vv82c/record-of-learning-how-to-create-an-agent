@@ -1,0 +1,257 @@
+/* ═══════════════════════════════════════════════════════════
+   Emperor Agent · 宫廷主题（任务 B1）
+   设计规范见 UIPLAN.md 第二节：玄墨底 / 宫墙红 / 鎏金 / 明黄 / 朱砂 / 青玉。
+   全部视觉由 CSS 与内联 SVG 达成——零图片资产。
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  --xuanmo:    #171210;              /* 玄墨：页面底色 */
+  --gongqiang: #5e1f18;              /* 宫墙红 */
+  --gongqiang-dim: #2a0f0b;          /* 宫墙红 · 深 */
+  --liujin:    #d4af37;              /* 鎏金：标题边框强调 */
+  --liujin-dim:#8a6d3b;              /* 鎏金 · 暗 */
+  --minghuang: #e8c26a;              /* 明黄：正文亮字 */
+  --zhusha:    #b93a32;              /* 朱砂：朱批与危险 */
+  --qingyu:    #7ba697;              /* 青玉：成功与正常 */
+  --ink-card:  #241a12;              /* 卡片墨底 */
+  --font-title: "KaiTi", "STKaiti", serif;
+  --font-body:  Georgia, "Songti SC", SimSun, serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { height: 100%; }
+
+body {
+  background:
+    radial-gradient(1200px 500px at 70% -10%, rgba(94,31,24,.35), transparent 60%),
+    var(--xuanmo);
+  color: var(--minghuang);
+  font-family: var(--font-body);
+  display: flex; flex-direction: column;
+}
+
+/* ═══════════ 宫檐顶栏 ═══════════ */
+.eave {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 18px;
+  background: linear-gradient(180deg, #241410, #1a0e0a);
+  border-bottom: 1px solid var(--liujin);
+  position: relative;
+}
+/* 简化回纹：檐下鎏金碎锦一条 */
+.eave::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -7px; height: 4px;
+  background: repeating-linear-gradient(90deg,
+    var(--liujin) 0 10px, transparent 10px 14px,
+    var(--liujin-dim) 14px 24px, transparent 24px 28px);
+  opacity: .55;
+}
+.eave-left { display: flex; align-items: center; gap: 12px; }
+.eave h1 {
+  font-family: var(--font-title);
+  font-size: 1.45rem; letter-spacing: .18em; color: var(--liujin);
+  text-shadow: 0 1px 2px rgba(0,0,0,.6);
+}
+.eave .sub { color: var(--liujin-dim); font-size: .85rem; letter-spacing: .2em; }
+.seal { width: 34px; height: 34px; filter: drop-shadow(0 1px 1px rgba(0,0,0,.7)); }
+
+.eave-right { display: flex; align-items: center; gap: 14px; }
+
+/* 宫灯：当值状态灯，行走中时呼吸 */
+.lamp { font-size: .9rem; letter-spacing: .12em; color: var(--liujin-dim); }
+.lamp.on {
+  color: var(--qingyu);
+  text-shadow: 0 0 8px rgba(123,166,151,.9);
+  animation: lamp-glow 2.6s ease-in-out infinite alternate;
+}
+.lamp.busy { color: var(--minghuang); text-shadow: 0 0 8px rgba(232,194,106,.9);
+             animation: lamp-glow 1.1s ease-in-out infinite alternate; }
+@keyframes lamp-glow { from { opacity: .75; } to { opacity: 1; } }
+
+/* ═══════════ 按钮 ═══════════ */
+.btn {
+  font-family: var(--font-title); font-size: .95rem; letter-spacing: .25em;
+  padding: 7px 20px; cursor: pointer; border-radius: 4px;
+  transition: transform .08s ease, box-shadow .15s ease;
+}
+.btn:active { transform: translateY(1px); }
+.btn-quit { background: transparent; color: var(--zhusha);
+            border: 1px solid var(--zhusha); }
+.btn-quit:hover { box-shadow: 0 0 10px rgba(185,58,50,.4); }
+.btn-mini { background: transparent; color: var(--liujin-dim);
+            border: 1px dashed var(--liujin-dim);
+            font-size: .8rem; padding: 4px 10px; width: 100%;
+            letter-spacing: .15em; }
+.btn-mini:hover { color: var(--liujin); border-color: var(--liujin); }
+.btn-send {
+  background: linear-gradient(180deg, #e0b64e, #b08a2e);
+  color: #241505; border: 1px solid var(--liujin); font-weight: bold;
+}
+.btn-send:hover { box-shadow: 0 0 14px rgba(212,175,55,.45); }
+
+/* ═══════════ 主区布局：偏殿 + 金銮殿 ═══════════ */
+.hall { flex: 1; display: flex; min-height: 0; }
+
+.sidebar {
+  width: 248px; flex: none; overflow-y: auto;
+  background: linear-gradient(180deg, var(--gongqiang-dim), #1c0b08 70%);
+  border-right: 1px solid rgba(212,175,55,.35);
+  padding: 14px 12px; display: flex; flex-direction: column; gap: 14px;
+}
+.panel { border: 1px solid rgba(212,175,55,.3); border-radius: 6px;
+         padding: 10px 12px; background: rgba(0,0,0,.22); }
+.panel h2 {
+  font-family: var(--font-title); font-size: .95rem; color: var(--liujin);
+  letter-spacing: .18em; margin-bottom: 8px;
+  border-bottom: 1px dashed rgba(212,175,55,.3); padding-bottom: 6px;
+}
+.panel ul { list-style: none; display: flex; flex-direction: column; gap: 6px;
+            margin-bottom: 8px; }
+.panel li { font-size: .88rem; color: var(--minghuang); opacity: .85;
+            display: flex; justify-content: space-between; gap: 8px; }
+.panel li.active { color: var(--liujin); opacity: 1;
+                   text-shadow: 0 0 6px rgba(212,175,55,.5); }
+.hint { color: var(--liujin-dim); font-size: .75rem; }
+
+/* 差事灯笼三态 */
+.todos li { letter-spacing: .08em; }
+.todo-done    { color: var(--qingyu); }
+.todo-doing   { color: var(--minghuang); text-shadow: 0 0 7px rgba(232,194,106,.7); }
+.todo-pending { color: #9b855c; }
+
+/* 换装间人格标签 */
+.personas { display: flex; flex-wrap: wrap; gap: 8px; }
+.persona {
+  font-size: .82rem; padding: 4px 12px; border-radius: 999px;
+  border: 1px solid var(--liujin-dim); color: var(--liujin-dim);
+  letter-spacing: .1em;
+}
+.persona.active { border-color: var(--liujin); color: var(--liujin);
+                  box-shadow: 0 0 8px rgba(212,175,55,.35); }
+
+/* ═══════════ 金銮殿 · 对话区 ═══════════ */
+.throne {
+  flex: 1; overflow-y: auto; min-width: 0;
+  padding: 26px 30px 18px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+/* 金銮殿滚轴（暗金细条） */
+.throne::-webkit-scrollbar, .sidebar::-webkit-scrollbar { width: 8px; }
+.throne::-webkit-scrollbar-thumb, .sidebar::-webkit-scrollbar-thumb {
+  background: rgba(212,175,55,.28); border-radius: 4px;
+}
+
+/* 朱批：皇上的话，右对齐朱砂短卡 */
+.zhu-pi {
+  align-self: flex-end; max-width: 62%;
+  background: linear-gradient(180deg, rgba(185,58,50,.16), rgba(185,58,50,.09));
+  border: 1px solid rgba(185,58,50,.55); border-right: 3px solid var(--zhusha);
+  border-radius: 6px 2px 2px 6px;
+  padding: 10px 16px; font-family: var(--font-title);
+  font-size: 1.02rem; letter-spacing: .1em; color: #e8b6b0;
+}
+
+/* 奏折：Agent 回复，卷轴长卡 */
+.memorial {
+  position: relative; align-self: flex-start; max-width: 82%;
+  background: linear-gradient(180deg, var(--ink-card), #1d140d);
+  border: 1px solid var(--liujin-dim); border-radius: 4px;
+  padding: 18px 20px 12px;
+  box-shadow: 0 3px 10px rgba(0,0,0,.45);
+}
+/* 卷轴上下轴头：鎏金圆杆 */
+.memorial::before, .memorial::after {
+  content: ""; position: absolute; left: -8px; right: -8px; height: 9px;
+  background: linear-gradient(180deg, #e6c766, #8a6d3b 55%, #4d3a19);
+  border-radius: 5px; box-shadow: 0 1px 2px rgba(0,0,0,.6);
+}
+.memorial::before { top: -8px; }
+.memorial::after  { bottom: -8px; }
+.memorial-body { line-height: 1.75; letter-spacing: .06em;
+                 white-space: pre-wrap; word-break: break-word; }
+.memorial-foot {
+  text-align: right; color: var(--liujin-dim); font-family: var(--font-title);
+  font-size: .85rem; margin-top: 8px; letter-spacing: .25em;
+}
+
+/* 内务府工具卡：可折叠 */
+.tool-card {
+  align-self: flex-start; max-width: 76%;
+  background: rgba(0,0,0,.28); border: 1px dashed rgba(212,175,55,.4);
+  border-radius: 4px; font-size: .88rem; color: #bfa06a;
+}
+.tool-card summary { cursor: pointer; padding: 7px 12px; list-style: none;
+                     letter-spacing: .05em; user-select: none; }
+.tool-card summary::-webkit-details-marker { display: none; }
+.tool-card pre {
+  padding: 8px 14px; color: #9c8a67; font-size: .82rem; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word;
+  border-top: 1px dashed rgba(212,175,55,.25); max-height: 260px; overflow-y: auto;
+}
+.tool-card .ok { color: var(--qingyu); }
+
+/* ═══════════ 圣旨待批模态 ═══════════ */
+.veil {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(10, 5, 3, .72); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center;
+}
+.decree {
+  width: min(460px, 88vw);
+  background: linear-gradient(180deg, #2c120c, #1c0b08);
+  border: 2px solid var(--liujin); border-radius: 6px;
+  padding: 26px 28px; text-align: center;
+  box-shadow: 0 0 40px rgba(212,175,55,.25);
+}
+.decree h3 {
+  font-family: var(--font-title); color: var(--liujin);
+  font-size: 1.3rem; letter-spacing: .5em; text-indent: .5em; margin-bottom: 14px;
+  border-bottom: 1px solid rgba(212,175,55,.4); padding-bottom: 12px;
+}
+.decree-text { line-height: 1.7; letter-spacing: .05em; margin-bottom: 20px;
+               word-break: break-all; }
+.decree-text code { color: var(--minghuang); background: rgba(0,0,0,.35);
+                    padding: 2px 6px; border-radius: 3px; font-size: .88em; }
+.decree-actions { display: flex; gap: 18px; justify-content: center; }
+.btn-approve {
+  background: linear-gradient(180deg, #7ba697, #4f7a6a); color: #0e1a14;
+  border: 1px solid var(--qingyu);
+}
+.btn-deny { background: transparent; color: var(--zhusha);
+            border: 1px solid var(--zhusha); }
+.btn-approve:hover { box-shadow: 0 0 12px rgba(123,166,151,.5); }
+.btn-deny:hover { box-shadow: 0 0 12px rgba(185,58,50,.5); }
+
+/* ═══════════ 传旨输入栏 ═══════════ */
+.decree-bar {
+  display: flex; gap: 14px; align-items: flex-end;
+  padding: 14px 18px 16px;
+  background: linear-gradient(0deg, #241410, #190d09);
+  border-top: 1px solid rgba(212,175,55,.4);
+}
+.decree-bar textarea {
+  flex: 1; resize: none; max-height: 140px;
+  background: rgba(0,0,0,.4); color: var(--minghuang);
+  border: 1px solid var(--liujin-dim); border-radius: 6px;
+  padding: 10px 14px; font-family: var(--font-body); font-size: .98rem;
+  line-height: 1.5; letter-spacing: .05em; outline: none;
+}
+.decree-bar textarea:focus { border-color: var(--liujin);
+                             box-shadow: 0 0 10px rgba(212,175,55,.25); }
+
+/* ═══════════ 窗口缩放：窄屏收偏殿，布局不塌 ═══════════ */
+@media (max-width: 860px) {
+  .sidebar { width: 190px; }
+  .eave .sub { display: none; }
+}
+@media (max-width: 640px) {
+  /* 窄屏顶栏允许换行，避免"当值"灯与"退朝"按钮被挤出视口（B1 窄视口验收发现） */
+  .eave { flex-wrap: wrap; row-gap: 6px; }
+  .hall { flex-direction: column; }
+  .sidebar { width: auto; flex-direction: row; flex-wrap: wrap;
+             border-right: none; border-bottom: 1px solid rgba(212,175,55,.3); }
+  .panel { flex: 1 1 160px; }
+  .zhu-pi { max-width: 88%; }
+  .memorial { max-width: 94%; }
+}

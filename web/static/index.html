@@ -3,24 +3,117 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Emperor Agent</title>
-<style>
-  /* 任务 A1 占位页：正式宫廷界面于阶段 B 施工，此处仅先立视觉基调 */
-  body {
-    background: #171210; color: #e8c26a;
-    font-family: KaiTi, STKaiti, serif;
-    display: flex; align-items: center; justify-content: center;
-    flex-direction: column; height: 100vh; margin: 0;
-  }
-  h1 {
-    font-size: 3rem; letter-spacing: .3em; text-indent: .3em;
-    border: 1px solid #d4af37; padding: 1rem 3rem; margin: 0 0 1.5rem;
-  }
-  p { color: #8a6d3b; letter-spacing: .15em; }
-</style>
+<title>Emperor Agent · 金銮殿</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>Emperor Agent</h1>
-  <p>金銮殿营造中……（A1 占位页 · 正式宫廷界面见阶段 B）</p>
+
+<!-- ═══════════ 宫檐顶栏 ═══════════ -->
+<header class="eave">
+  <div class="eave-left">
+    <!-- 玉玺印（内联 SVG，非图片资产） -->
+    <svg class="seal" viewBox="0 0 48 48" aria-hidden="true">
+      <rect x="4" y="4" width="40" height="40" rx="6" fill="none" stroke="#b93a32" stroke-width="3"/>
+      <rect x="10" y="10" width="28" height="28" rx="2" fill="none" stroke="#b93a32" stroke-width="1.5"/>
+      <text x="24" y="31" text-anchor="middle" font-size="15" fill="#b93a32"
+            font-family="KaiTi, STKaiti, serif" font-weight="bold">皇</text>
+    </svg>
+    <h1>Emperor Agent</h1>
+    <span class="sub">大内总管 · 奉旨当值</span>
+  </div>
+  <div class="eave-right">
+    <!-- 宫灯：当值/行走中 状态（B2 接内核事件切换） -->
+    <span class="lamp on" id="lamp">● 当值</span>
+    <button class="btn btn-quit" type="button">退朝</button>
+  </div>
+</header>
+
+<div class="hall">
+  <!-- ═══════════ 偏殿侧栏 ═══════════ -->
+  <aside class="sidebar">
+    <section class="panel">
+      <h2>◈ 偏殿名册</h2>
+      <!-- B1 静态示例：C2 起由会话数据动态渲染 -->
+      <ul class="sessions" id="session-list">
+        <li class="active"><span class="hall-name">乾清宫</span><span class="hint">当前</span></li>
+        <li><span class="hall-name">0823 · 夜话</span><span class="hint">14 条</span></li>
+        <li><span class="hall-name">0824 · 晨议</span><span class="hint">6 条</span></li>
+      </ul>
+      <button class="btn btn-mini" type="button" id="btn-new-hall">＋ 开新殿</button>
+    </section>
+
+    <section class="panel">
+      <h2>◈ 差事灯笼</h2>
+      <!-- B1 静态示例：B3 起吃 todos 事件 -->
+      <ul class="todos" id="todo-list">
+        <li class="todo-done">◉ 查榜单</li>
+        <li class="todo-doing">◐ 汇总成文</li>
+        <li class="todo-pending">○ 回禀皇上</li>
+      </ul>
+    </section>
+
+    <section class="panel">
+      <h2>◈ 班底名册</h2>
+      <ul class="team" id="team-list">
+        <li>传令兵 <span class="hint">当值</span></li>
+      </ul>
+    </section>
+
+    <section class="panel">
+      <h2>◈ 换装间</h2>
+      <div class="personas" id="persona-list">
+        <span class="persona active">太监总管</span>
+        <span class="persona">英式管家</span>
+      </div>
+    </section>
+  </aside>
+
+  <!-- ═══════════ 金銮殿 · 对话区 ═══════════ -->
+  <main class="throne" id="chat">
+
+    <!-- B1 静态示例：朱批（皇上说的话，右对齐朱砂短卡） -->
+    <div class="zhu-pi">查查 Ox Alpha 的跑分榜单</div>
+
+    <!-- B1 静态示例：内务府工具卡（可折叠） -->
+    <details class="tool-card">
+      <summary><span class="arrow">▸</span> 内务府 · read_file main.py <span class="ok">✓</span></summary>
+      <pre>#!/usr/bin/env python3
+"""main.py — 终端入口……（工具输出示意，B2 起显示真实结果）"""</pre>
+    </details>
+    <details class="tool-card" open>
+      <summary><span class="arrow">▾</span> 小太监 #3 · 东厂出巡 <span class="ok">✓</span></summary>
+      <pre>回禀总管：榜单已查得三项……（子代理回禀示意）</pre>
+    </details>
+
+    <!-- B1 静态示例：奏折（Agent 回复，卷轴长卡） -->
+    <article class="memorial">
+      <div class="memorial-body">
+        奉天承运皇帝诏曰：<br><br>
+        启禀皇上，Ox Alpha 乃 OpenRouter 上匿名现身的新模型，榜单成绩已着东厂小太监查得三项，
+        现将要点条陈于后……（B1 静态示例文——B2 起此处逐字流式浮现圣裁内容）
+      </div>
+      <div class="memorial-foot">老奴叩禀</div>
+    </article>
+  </main>
+</div>
+
+<!-- ═══════════ 圣旨待批（模态，B1 隐藏备用，C1 接线） ═══════════ -->
+<div class="veil" id="decree-veil" hidden>
+  <div class="decree">
+    <h3>圣 旨 待 批</h3>
+    <p class="decree-text" id="decree-text">皇上，此令需您朱批：</p>
+    <div class="decree-actions">
+      <button class="btn btn-approve" type="button" id="btn-approve">准 奏</button>
+      <button class="btn btn-deny" type="button" id="btn-deny">驳 回</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ 传旨输入栏 ═══════════ -->
+<footer class="decree-bar">
+  <textarea id="input" rows="1" placeholder="传旨……（Enter 传旨，Shift+Enter 换行）"></textarea>
+  <button class="btn btn-send" type="button" id="btn-send">传 旨</button>
+</footer>
+
 </body>
 </html>
