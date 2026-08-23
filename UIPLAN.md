@@ -108,7 +108,7 @@
   - 要求：把 main.py 的对话驱动抽为可编程调用的 runner（复用 call_llm/registry/记忆/压缩全套），
     终端版 main.py 改为调用同一实现，双入口共存；不改变任何工具行为
   - 【完成标志】终端版回归实测（一轮含工具调用的对话）；脚本直接驱动 runner 跑通一轮对话
-- [ ] **A3 WebSocket 事件流协议**
+- [x] **A3 WebSocket 事件流协议**（✅ 2026-08-24，实测：token 10 段增量拼接与 done.reply 完全一致；工具事件链完整；ask 准奏/驳回/超时三分支全对（超时 3s 自动驳回 fail-closed）；终端非交互默认拒绝零回归。附带修复：server.py 自举 sys.path，任意目录可启动。**阶段 A 完成**）
   - 要求：定义事件类型 `token / tool_start / tool_end / subagent / todos / hook_ask /
     hook_decision / done / error / session`；runner 产出事件，ws 推送；hook ask 从阻塞 input()
     改为事件+等待确认（超时默认驳回，fail-closed 不变）
@@ -205,3 +205,4 @@
 | 2026-08-24 | 创建 UIPLAN.md：Emperor Agent 立项，阶段 A-D 共 12 项任务 | 软件化方向；沿用"计划先行"纪律 |
 | 2026-08-24 | 任务 A1 完成并勾选：web/server.py + 占位页 + 依赖锁定 | 阶段 A 开工；红线（只绑回环）首次实测通过 |
 | 2026-08-24 | 任务 A2 完成并勾选：新增 agent_core/runner.py（内核 + 事件流 + confirmer 注入），main.py 重写为薄外壳；拦截回复文案中性化 | 双入口共用内核落地；事件模型为 A3 WebSocket 预留 |
+| 2026-08-24 | 任务 A3 完成并勾选，**阶段 A 完成**：/ws 端点（队列单写者防并发写交错）+ WSConfirmer（事件→回执→超时驳回）；修复 web/server.py 的 sys.path 自举 | 风险最高的 ask 异步化一次通过；超时分支用独立短超时服务器实例验证 |

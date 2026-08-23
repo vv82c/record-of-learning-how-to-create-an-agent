@@ -1,20 +1,53 @@
-"""Emperor Agent · Web 服务入口（任务 A1：FastAPI 服务骨架）。
+"""Emperor Agent · Web 服务入口。
 
-UIPLAN 红线：只监听 127.0.0.1——本 Agent 具备命令执行与文件读写能力，
-绝不暴露到局域网。启动：python web/server.py（端口可用环境变量 EMPEROR_PORT 覆盖）。
+- 任务 A1：服务骨架与红线（只绑 127.0.0.1——本 Agent 能执行命令，绝不暴露局域网）。
+- 任务 A3：WebSocket 事件流 /ws——SessionRunner 内核事件全量转发；
+  hook ask 确认从阻塞 input() 改为"事件 + 等待回执"，
+  **超时默认驳回（fail-closed）**，语义与终端版一致（终端非交互时同样默认拒绝）。
+
+客户端 → 服务端消息：
+  {"type": "send", "text": "..."}       发起一轮对话（同一连接同时只办一件差事）
+  {"type": "confirm", "approved": bool} 回应 hook_ask（对应 UI 的"准奏/驳回"）
+  {"type": "ping"}                       心跳
+服务端 → 客户端事件：SessionRunner 的全部事件（见 agent_core/runner.py）
+  另加 idle（本轮办完，可继续传旨）与 pong。
 """
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
+import json
 import os
+import sys
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
+# python web/server.py 时导入根是 web/，自举加上项目根（打包后任意目录可启动）
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
-STATIC_DIR = Path(__file__).resolve().parent / "static"
+from agent_core.config import MCP_CONFIG_PATH
+from agent_core.mcp_client import connect_all
+from agent_core.runner import SessionRunner
 
-app = FastAPI(title="Emperor Agent")
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+# ask 等待回执的超时（秒）：超时按驳回处理；测试时可调小
+ASK_TIMEOUT = float(os.environ.get("EMPEROR_ASK_TIMEOUT", "120"))
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    connect_all(MCP_CONFIG_PATH)  # 与终端入口一致：启动即连接 MCP Server
+    yield
+
+
+app = FastAPI(title="Emperor Agent", lifespan=lifespan)
 
 
 @app.get("/api/health")
@@ -25,6 +58,103 @@ async def health():
 @app.get("/")
 async def index():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+class WSConfirmer:
+    """hook ask 的 ws 桥（任务 A3）。
+
+    runner 线程调用 __call__ 时阻塞等待浏览器的 confirm 回执；
+    dispatch_tool 在调用前已发出 hook_ask 事件，这里只负责"等"。
+    超时或异常一律返回 False（驳回）——fail-closed 语义与终端版对齐。
+    注意：超时与显式驳回在 deny 文案里统一为"用户未确认高敏感操作"。
+    """
+
+    def __init__(self, loop: asyncio.AbstractEventLoop, ask_timeout: float):
+        self._loop = loop
+        self._timeout = ask_timeout
+        self._future: asyncio.Future | None = None
+
+    def __call__(self, decision) -> bool:
+        wrapper = asyncio.run_coroutine_threadsafe(self._wait(), self._loop)
+        try:
+            return wrapper.result(timeout=self._timeout)
+        except concurrent.futures.TimeoutError:
+            fut = self._future
+            if fut is not None and not fut.done():
+                self._loop.call_soon_threadsafe(fut.cancel)
+            return False
+        except Exception:
+            return False
+
+    async def _wait(self) -> bool:
+        self._future = self._loop.create_future()
+        return await self._future
+
+    def resolve(self, approved: bool) -> None:
+        fut = self._future
+        if fut is not None and not fut.done():
+            fut.set_result(approved)
+
+
+@app.websocket("/ws")
+async def ws_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    loop = asyncio.get_running_loop()
+    out_queue: asyncio.Queue = asyncio.Queue()
+
+    async def pump() -> None:
+        """唯一的写者：所有出站消息都经队列串行发送，避免并发写 interleaving。"""
+        while True:
+            event = await out_queue.get()
+            await websocket.send_text(json.dumps(event, ensure_ascii=False))
+
+    def on_event(event: dict) -> None:
+        """runner 线程 → 事件循环：线程安全地入队。"""
+        loop.call_soon_threadsafe(out_queue.put_nowait, event)
+
+    confirmer = WSConfirmer(loop, ASK_TIMEOUT)
+    runner = SessionRunner(on_event=on_event, confirmer=confirmer)
+    busy = threading.Event()  # 同一连接同时只办一件差事
+
+    pump_task = asyncio.create_task(pump())
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                out_queue.put_nowait({"type": "error", "message": f"无法解析的消息：{raw[:100]}"})
+                continue
+
+            kind = msg.get("type")
+            if kind == "ping":
+                out_queue.put_nowait({"type": "pong"})
+            elif kind == "confirm":
+                confirmer.resolve(bool(msg.get("approved")))
+            elif kind == "send":
+                if busy.is_set():
+                    out_queue.put_nowait({"type": "error", "message": "上一条传旨仍在办理中，请稍候"})
+                    continue
+                busy.set()
+                text = str(msg.get("text", ""))
+                out_queue.put_nowait({"type": "user_echo", "text": text})
+
+                def work() -> None:
+                    try:
+                        runner.send(text)
+                    except Exception as exc:  # 内核异常不能拖垮连接
+                        on_event({"type": "error", "message": f"[内核异常] {type(exc).__name__}: {exc}"})
+                    finally:
+                        busy.clear()
+                        on_event({"type": "idle"})
+
+                threading.Thread(target=work, daemon=True, name="emperor-send").start()
+            else:
+                out_queue.put_nowait({"type": "error", "message": f"未知消息类型：{kind}"})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        pump_task.cancel()
 
 
 if __name__ == "__main__":
