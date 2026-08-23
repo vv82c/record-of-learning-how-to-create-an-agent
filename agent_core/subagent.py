@@ -1,8 +1,38 @@
 """子代理：独立 message loop 的临时派差，办完只回传总结，不污染主上下文。"""
 from __future__ import annotations
 
+import os
+
 from .llm import MODEL, assistant_to_dict, client, to_tool_call
 from .tools import TOOL_SCHEMAS, execute_basic_tool
+
+# 任务 5.1：失败预算（熔断）。oxalpha 事件里子代理在网络不可达时傻傻烧满全部回合，
+# 只回传一句无原因的固定失败串。现在连续 N 次工具失败即提前收兵，并回传原因与统计。
+# 阈值用"连续"而非"累计"：累计会把"多次失败后成功"的健康探索也误杀。
+FAIL_BUDGET = int(os.environ.get("AGENT_SUBAGENT_FAIL_BUDGET", "3"))
+
+
+def _is_tool_failure(content: str) -> bool:
+    """工具结果是否计为失败。
+
+    约定：web_fetch 的失败（超时/DNS/SSRF）与 run_command 的超时都以 "Error" 开头；
+    普通命令的非零退出返回的是 stderr 原文，无法可靠识别，按成功计（宁漏勿误杀）。
+    """
+    return content.startswith("Error")
+
+
+def _circuit_breaker_message(consecutive: int, turns_used: int) -> str:
+    return (
+        f"（子代理提前收兵：连续 {consecutive} 次工具调用失败，疑似网络不可达或资源受限；"
+        f"已尝试 {turns_used} 轮。建议：确认网络/代理是否可用，或改派本地只读任务。）"
+    )
+
+
+def _max_turns_message(turns: int, ok: int, fail: int) -> str:
+    return (
+        f"（子代理达到 {turns} 轮上限未办妥；期间工具调用 {ok} 次成功、{fail} 次失败。"
+        f"若失败居多，多半是目标不可达，建议换任务口径或确认网络。）"
+    )
 
 
 # ============== 子代理预设身份 ==============
@@ -110,6 +140,9 @@ def run_subagent(task: str, agent_type: str = "neiguan_yingzao",
     print("  ┌── subagent context start ──")
 
     messages = [{"role": "user", "content": task}]
+    consecutive_failures = 0
+    ok_count = 0
+    fail_count = 0
 
     for turn in range(turns):
         msg = client.chat.completions.create(
@@ -134,6 +167,21 @@ def run_subagent(task: str, agent_type: str = "neiguan_yingzao",
                 "tool_call_id": tc.id,
                 "content": content,
             })
+            if _is_tool_failure(content):
+                consecutive_failures += 1
+                fail_count += 1
+            else:
+                consecutive_failures = 0
+                ok_count += 1
 
-    print(f"  └── subagent context end (达到 {turns} 轮上限，未办妥) ──\n")
-    return "（小太监未能在限定回合内办妥差事）"
+        # 熔断检查放在整批工具执行完之后：协议要求每个 tool_call 都要有配对结果
+        if consecutive_failures >= FAIL_BUDGET:
+            text = _circuit_breaker_message(consecutive_failures, turn + 1)
+            print(f"  └── 连续 {consecutive_failures} 次工具失败，触发熔断提前收兵（第 {turn + 1} 轮）──\n")
+            print(f"[小太监回禀]: {text}\n")
+            return text
+
+    text = _max_turns_message(turns, ok_count, fail_count)
+    print(f"  └── subagent context end (达到 {turns} 轮上限，成功 {ok_count} / 失败 {fail_count}) ──\n")
+    print(f"[小太监回禀]: {text}\n")
+    return text
