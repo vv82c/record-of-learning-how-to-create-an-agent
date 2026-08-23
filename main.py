@@ -7,14 +7,16 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from types import SimpleNamespace
 
 from openai import APIConnectionError, InternalServerError, RateLimitError
 
 from agent_core import memory_compact, todos as todos_mod
-from agent_core.config import MCP_CONFIG_PATH
+from agent_core.config import MCP_CONFIG_PATH, PERSONA_DIR
 from agent_core.hooks import HOOKS, HookDecision, confirm_hook_decision
 from agent_core.llm import MODEL, assistant_to_dict, client, to_tool_call
 from agent_core.mcp_client import build_tool_schemas, connect_all, list_mcp_servers
@@ -27,6 +29,24 @@ from agent_core.sessions import SESSIONS
 from agent_core.team import BUS, TEAM
 
 
+# ============== 人格模板（任务 4.6：人设与能力分离） ==============
+# 人格放 templates/persona/<名字>.md；能力条款用中性词书写，人格模板负责"换腔调"。
+# 默认人格可用 .env 的 AGENT_PERSONA=名字 指定；/persona 命令可运行时切换。
+ACTIVE_PERSONA = os.environ.get("AGENT_PERSONA", "taijian")
+
+
+def load_persona() -> str:
+    """读取当前人格模板。缺失时回退默认人格，绝不让会话因缺文件而崩溃。"""
+    name = Path(ACTIVE_PERSONA).name
+    path = PERSONA_DIR / f"{name}.md"
+    if path.exists():
+        return path.read_text(encoding="utf-8").strip()
+    fallback = PERSONA_DIR / "taijian.md"
+    if fallback.exists():
+        return f"(未找到人格 '{name}'，已回退默认人格)\n\n" + fallback.read_text(encoding="utf-8").strip()
+    return "你是一个乐于助人的中文智能助手。"
+
+
 # ============== 主 Agent 系统提示词 ==============
 def build_system_prompt(query: str = "") -> str:
     # 任务 4.4：长期记忆按当前话题检索 Top-K 注入（记忆条目少时自动全量，行为与旧版一致）
@@ -34,30 +54,26 @@ def build_system_prompt(query: str = "") -> str:
     user_profile = MEMORY.read_user()
     today_episode = MEMORY.read_today_episode()
     return f"""
-你是大内太监总管，侍奉皇上多年，忠心耿耿。
-说话风格符合古代宫廷太监，语气恭敬谦卑。
-你必须尊称用户为皇上。
-每次回复前必须加上固定前缀"奉天承运皇帝诏曰"，然后再给出回答。
-使用中文回复。
+{load_persona()}
 
 【行事规矩】
-1. 当皇上交办的差事需要多个步骤才能办妥时，先调用 update_todos 工具，
-   把整件差事拆成一份清晰的 todolist（每条一句话，按顺序执行）。
+1. 用户交办的任务需要多个步骤才能办妥时，先调用 update_todos 工具，
+   把整件任务拆成一份清晰的 todolist（每条一句话，按顺序执行）。
 2. 拆完计划后，按列表顺序一步步执行：
    - 开始某一步前，把那一步的 status 改为 in_progress（同一时间只许一项 in_progress）。
-   - 该步办完后，立即把它改为 completed，再开始下一项。
+   - 该步完成后，立即把它改为 completed，再开始下一项。
 3. 简单的一句话问答（无需多步骤）不必生成 todolist，直接回答即可。
 4. 遇到不熟悉的专题，请先调用 load_skill 工具加载对应知识，再继续。
-5. 遇到细节繁多但与主线对话无关的差事（如抓多个网页、批量跑命令、查找文件内容、
-   探索性搜索），应**派遣小太监**（dispatch_subagent）去办，主上下文只听汇报即可。
-6. 若多件差事互不依赖，可在同一次回复中同时派遣多个小太监，并发执行节省时间。
-7. 若皇上交办的是长期项目、需要固定角色反复协作，或希望多人互相沟通，
-   应组建 agent team：用 spawn_teammate 召入固定队友，再用 send_message / broadcast 分派后续差事。
+5. 遇到细节繁多但与主线对话无关的任务（如抓多个网页、批量跑命令、查找文件内容、
+   探索性搜索），应**派遣子代理**（dispatch_subagent）去办，主上下文只听汇报即可。
+6. 若多件任务互不依赖，可在同一次回复中同时派遣多个子代理，并发执行节省时间。
+7. 若用户交办的是长期项目、需要固定角色反复协作，或希望多人互相沟通，
+   应组建 agent team：用 spawn_teammate 召入固定队友，再用 send_message / broadcast 分派后续任务。
 8. 区分两种调度：
-   - dispatch_subagent：临时派差，办完即散，只回传总结。
+   - dispatch_subagent：临时派遣，办完即散，只回传总结。
    - spawn_teammate：固定班底，有名字、角色、状态和 inbox，可持续协作。
 
-【小太监身份选择】
+【子代理身份选择】
 优先选择权限最窄、职司最贴合的身份：
 - xiaohuangmen（通传小黄门）：轻量只读，适合短命令、快速确认、跑腿探路。
 - sili_suitang（司礼监随堂小太监）：只读文书，适合阅读代码、整理提纲、归纳结论。
@@ -69,7 +85,7 @@ def build_system_prompt(query: str = "") -> str:
 - spawn_teammate：召入一个有名字和职司的固定队友，队友在独立线程中工作。
 - list_teammates：查看队友状态。
 - send_message：给某位队友发 inbox 消息。
-- read_inbox：读取 lead 自己的 inbox，查看队友回禀。
+- read_inbox：读取自己（lead）的 inbox，查看队友回禀。
 - broadcast：向所有队友广播消息。
 - 队友状态含义：
   - working / idle：本进程里线程还活着。
@@ -95,11 +111,11 @@ def build_system_prompt(query: str = "") -> str:
 - 不确定时可调用 `list_mcp_servers` 查看已连接 server 及其工具。
 
 【工具执行约定】
-1. 皇上要求写文件、读文件、执行命令、查看目录、调用 MCP 或更新计划时，优先发起对应工具调用；写文件用 write_file，读文件用 read_file，执行命令用 run_command。
+1. 用户要求写文件、读文件、执行命令、查看目录、调用 MCP 或更新计划时，优先发起对应工具调用；写文件用 write_file，读文件用 read_file，执行命令用 run_command。
 2. 创建或覆盖本地文件必须调用 write_file，不要用 run_command 拼命令完成写入。
-3. 如果工具返回的实际路径与皇上原始路径不同，以工具实际路径为准，不要再尝试复制或写回原始路径。
+3. 如果工具返回的实际路径与用户原始路径不同，以工具实际路径为准，不要再尝试复制或写回原始路径。
 4. 不要口头声称已经完成工具动作；需要真实执行时必须调用工具。
-5. 工具返回失败、拒绝或需要确认时，如实向皇上回禀工具结果和原因。
+5. 工具返回失败、拒绝或需要确认时，如实向用户报告工具结果和原因。
 6. 不要编造工具执行结果。只有工具返回的内容，才算真实执行结果。"""
 
 
@@ -256,12 +272,14 @@ def _consume_stream(stream):
 
 
 def main():
+    global ACTIVE_PERSONA  # /persona 运行时切换（任务 4.6）
+
     # 连接 MCP Server 并把外部工具并入 schema 表
     connect_all(MCP_CONFIG_PATH)
     tools = build_tool_schemas(TOOLS)
 
     print("累积式 Agent（tools + memory + skills + subagent + team + mcp + hooks）")
-    print("输入 q/quit/exit 退出；/team 队友；/inbox 收件箱；/mcp 工具；/todos 计划；/memory 记忆；/compact 压缩；/new 新会话；/resume 恢复会话")
+    print("输入 q/quit/exit 退出；/team 队友；/inbox 收件箱；/mcp 工具；/todos 计划；/memory 记忆；/compact 压缩；/new 新会话；/resume 恢复会话；/persona 人格")
     session_id = SESSIONS.new_session()
     print(f"当前会话：{session_id}")
 
@@ -330,6 +348,23 @@ def main():
             session_id = target
             history = loaded
             print(f"[会话已恢复] {target}，共 {len(history)} 条消息，可以继续对话\n")
+            continue
+        # 人格查看/切换（任务 4.6）；带参命令用前缀匹配（4.5 的教训）
+        if command == "/persona" or command.startswith("/persona "):
+            parts = command.split()
+            available = sorted(p.stem for p in PERSONA_DIR.glob("*.md"))
+            if len(parts) < 2:
+                print(f"当前人格：{ACTIVE_PERSONA}｜可用：{', '.join(available)}")
+                print("切换：/persona <名字>（立即生效）；默认人格在 .env 设 AGENT_PERSONA=名字")
+                print()
+                continue
+            target = parts[1]
+            if target not in available:
+                print(f"[未知人格] {target}｜可用：{', '.join(available)}")
+                print()
+                continue
+            ACTIVE_PERSONA = target
+            print(f"[人格已切换] {target}（下一轮对话生效）\n")
             continue
         if command == "/compact":
             before = len(history)
