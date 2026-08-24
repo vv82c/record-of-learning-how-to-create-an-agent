@@ -145,9 +145,7 @@
 
 - [x] **D1 pywebview 桌面壳**（✅ 2026-08-24，实测：一条命令弹出"Emperor Agent · 金銮殿"窗口（1280×860）、服务健康、ws 对话可用（11 段 token 流式）；关窗后端口释放、python 进程 0、MCP 子进程 0。开发中修复：猴子补丁 serve 签名不兼容 → 改用端口轮询就绪。注：图标留待 D2 打包时随 exe 资源一起做）
 - [x] **D2 打包 exe**（✅ 2026-08-24，实测：38.2 MB 单文件，配 .env 后双击 **4 秒**起窗进对话（ws 流式验证）；无 .env 首启弹引导不崩溃；关窗端口/进程/MCP 子进程零残留。产物：`pyinstaller emperor.spec` → dist/EmperorAgent.exe；图标 assets/emperor.ico（PIL 绘制多尺寸玉玺方印）；build/dist 已入 .gitignore）
-- [ ] **D3 文档与门面收尾**
-  - 要求：README 增补软件形态与截图；SUMMARY 收录 UI 阶段学习要点
-  - 【完成标志】仓库文档与本文件同步；截图入库
+- [x] **D3 文档与门面收尾**（✅ 2026-08-24，截图入库 docs/images/hall.png 与 decree.png；README 增补软件形态（双入口/打包/安全红线）；SUMMARY 收录 UI 阶段任务表、知识点第 7 节、自测题 34-38、踩坑 #10-14、数字更新。**至此 UIPLAN 12 项全部完成，Emperor Agent 全旅程收官**）
 
 ---
 
@@ -206,3 +204,4 @@
 | 2026-08-24 | 任务 C3 完成并勾选，**阶段 C 完成**：subagent 事件带摘要、出巡簿/外务府面板、/api/subagent_logs 与 /api/mcp 端点 | 5.2 的日志在 UI 见人；熔断可视化闭环（oxalpha 事件的 UI 答卷） |
 | 2026-08-24 | 任务 D1 完成并勾选：run_app.py 桌面壳（uvicorn 后台线程 + pywebview 主线程 + 端口就绪轮询 + 关窗清理链）；pywebview==6.2.1 锁版本 | 阶段 D 开工；首版猴子补丁 serve(sockets=) 签名不兼容改为轮询端口的朴素方案 |
 | 2026-08-24 | 任务 D2 完成并勾选：PyInstaller 单文件 exe（38.2MB / 4秒启动）+ 玉玺图标 + 首启 .env 引导；build 产物入 gitignore | 完成标志"无 Python 环境双击可用"以干净目录实测 |
+| 2026-08-24 | 任务 D3 完成并勾选，**UIPLAN 12 项全部完成**：截图入库、README/SUMMARY 收录 | 从终端教学项目到桌面软件的全旅程闭环 |

@@ -1,6 +1,27 @@
-# create_an_agent — 累积式 Agent 学习实践
+# create_an_agent — 累积式 Agent 学习实践（Emperor Agent）
 
-我在学习 AI Agent 开发过程中完成的实践项目：基于 OpenAI 兼容接口的 function calling，在终端里从零实现一个对话 Agent。它复刻了 Claude Code 的核心架构，跑起来后 AI 会以"大内太监总管"的口吻侍奉"皇上"（你）。
+我在学习 AI Agent 开发过程中完成的实践项目：基于 OpenAI 兼容接口的 function calling，从零实现一个对话 Agent，并最终把它做成了桌面软件 **Emperor Agent**——古代宫廷风格 UI，AI 以"大内太监总管"的口吻侍奉"皇上"（你）。
+
+## 🏯 Emperor Agent 桌面软件
+
+![金銮殿主界面](docs/images/hall.png)
+
+- **对话**：朱批（你的话）与奏折（流式回复），内务府工具卡实时汇报执行过程
+- **圣旨待批**：高危操作弹"圣旨"模态，准奏 / 驳回 / 超时默认驳回（fail-closed）
+  ![圣旨待批](docs/images/decree.png)
+- **侧殿面板**：偏殿名册（多会话切换）、差事灯笼（todo 联动）、出巡簿（子代理日志与熔断）、外务府（MCP 工具）、换装间（人格切换）、记忆卷宗
+- **双入口**：桌面窗口与终端 REPL 共用同一内核（`run_app.py` / `main.py`）
+
+**运行**（需 Python 3.10+）：
+
+```bash
+pip install -r requirements.txt
+# 配置 .env（LLM_BASE_URL / LLM_API_KEY / LLM_MODEL）
+python run_app.py    # 桌面窗口
+python main.py       # 终端版
+```
+
+**打包 exe**（Windows）：`pyinstaller emperor.spec` → `dist/EmperorAgent.exe`（单文件约 38 MB，双击 4 秒启动；exe 旁放 `.env` 即可）。安全红线：服务只监听 127.0.0.1，`.env` 与用户数据绝不打包。
 
 ## 🙏 致谢
 
