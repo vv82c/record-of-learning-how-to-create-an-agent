@@ -46,32 +46,56 @@ def _ensure_env_or_guide() -> None:
 import uvicorn
 import webview
 
-HOST, PORT = "127.0.0.1", int(os.environ.get("EMPEROR_PORT", "8300"))
+HOST = "127.0.0.1"
+DEFAULT_PORT = int(os.environ.get("EMPEROR_PORT", "8300"))
 
 
-def _port_ready() -> bool:
+def _pick_port() -> int:
+    """选一个可用端口：优先默认 8300，被占则让 OS 分配随机空闲端口。
+
+    固定端口的代价（实测翻车）：本机常驻软件（如 O+Connect 手机互联）
+    抢占 8300 → 服务起不来 → 窗口黑屏；偶尔启动成功也会被干扰断连。
+    注意不用 SO_REUSEADDR：Windows 上它允许重复绑定"正在使用"的端口，
+    检测会假阳性（实测翻车）；connect 探测才是可靠判据。
+    """
     import socket
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.5)
-        return s.connect_ex((HOST, PORT)) == 0
+        if s.connect_ex((HOST, DEFAULT_PORT)) != 0:
+            return DEFAULT_PORT  # 连不上 = 没人监听 = 可用
+    # 默认口被占：让 OS 从临时端口段挑一个空闲的（bind(0) 的标准用法）
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((HOST, 0))
+        return s.getsockname()[1]
 
 
-def _serve():
+def _port_ready(port: int) -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex((HOST, port)) == 0
+
+
+def _serve(port: int):
     """后台线程跑 uvicorn（D1：pywebview 需要主线程，服务只能让位）。"""
     from web.server import app  # 延迟导入：lifespan 里的 MCP 连接在服务启动时才发生
 
-    config = uvicorn.Config(app, host=HOST, port=PORT, log_level="warning")
+    config = uvicorn.Config(app, host=HOST, port=port, log_level="warning")
     uvicorn.Server(config).run()
 
 
 def main() -> None:
     _ensure_env_or_guide()
-    thread = threading.Thread(target=_serve, name="emperor-server", daemon=True)
+    port = _pick_port()
+    if port != DEFAULT_PORT:
+        print(f"[Emperor Agent] 默认端口 {DEFAULT_PORT} 被占用（常见于常驻软件如手机互联工具），"
+              f"本次改用 {port}")
+    thread = threading.Thread(target=_serve, args=(port,), name="emperor-server", daemon=True)
     thread.start()
 
     # 轮询等端口就绪（最多 30 秒；MCP 连接慢时窗口宁可晚开也不白屏）
     deadline = time.time() + 30
-    while not _port_ready():
+    while not _port_ready(port):
         if time.time() > deadline:
             print("[Emperor Agent] 服务启动超时，请检查 MCP 配置后重试")
             sys.exit(1)
@@ -79,7 +103,7 @@ def main() -> None:
 
     window = webview.create_window(
         title="Emperor Agent · 金銮殿",
-        url=f"http://{HOST}:{PORT}/",
+        url=f"http://{HOST}:{port}/",
         width=1280,
         height=860,
         min_size=(720, 520),
