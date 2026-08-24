@@ -215,8 +215,30 @@
       case "reply":           renderReply(ev.text); break;
       case "tool_start":      renderToolStart(ev.name, ev.input); break;
       case "tool_end":        renderToolEnd(ev.name, ev.output, ev.blocked); break;
-      case "subagents_start": renderNotice(`并发派遣 ${ev.count} 位小太监出巡…`); break;
-      case "subagent_summary": renderNotice(`小太监已回禀（${ev.length} 字），详情见最终奏折`); break;
+      case "subagents_start":
+        renderNotice(`并发派遣 ${ev.count} 位小太监出巡…`);
+        refreshSubagentLogs();
+        break;
+      case "subagent_summary": {        // C3：回禀升级为带内容的折叠卡
+        const det = document.createElement("details");
+        det.className = "tool-card subagent-card";
+        const sum = document.createElement("summary");
+        const arrow = document.createElement("span");
+        arrow.className = "arrow"; arrow.textContent = "▸";
+        const title = document.createElement("span");
+        const breaker = (ev.summary || "").includes("提前收兵");
+        title.textContent = breaker ? " 小太监回禀（已熔断收兵）" : ` 小太监回禀（${ev.length} 字）`;
+        const state = document.createElement("span");
+        state.className = "state " + (breaker ? "blocked" : "ok");
+        state.textContent = breaker ? "⚡" : "✓";
+        sum.append(arrow, title, state);
+        const pre = document.createElement("pre");
+        pre.textContent = ev.summary || "";
+        det.append(sum, pre);
+        addNode(det);
+        refreshSubagentLogs();
+        break;
+      }
       case "stop_gate":       renderNotice(`[质量门禁] ${ev.reason}`, "warn"); break;
       case "retry":
       case "error":           renderNotice(String(ev.message || "").trim(), "warn"); break;
@@ -380,6 +402,44 @@
       `【MEMORY.md · 长期记忆】\n${data.memory.trim()}\n\n【USER.md · 用户画像】\n${data.user.trim()}`;
   }
 
+  /* ---- C3：出巡簿（子代理日志）与外务府（MCP 工具） ---- */
+  async function refreshSubagentLogs() {
+    const data = await fetchJSON("/api/subagent_logs");
+    if (!data || !Array.isArray(data.logs)) return;
+    const ul = $("subagent-log-list");
+    if (!ul) return;
+    ul.replaceChildren();
+    if (data.logs.length === 0) {
+      const li = document.createElement("li");
+      li.className = "hint";
+      li.textContent = "（尚无出巡记录）";
+      ul.appendChild(li);
+      return;
+    }
+    const outcomeText = { done: "办妥", circuit_breaker: "熔断", max_turns: "超轮", unknown: "?" };
+    const outcomeCls = { done: "todo-done", circuit_breaker: "todo-doing", max_turns: "todo-doing" };
+    for (const log of data.logs) {
+      const li = document.createElement("li");
+      li.className = outcomeCls[log.outcome] || "";
+      const name = document.createElement("span");
+      name.textContent = `${(log.agent_type || "?").slice(0, 8)} · ${(log.task || "").slice(0, 10)}`;
+      const hint = document.createElement("span");
+      hint.className = "hint";
+      hint.textContent = `${outcomeText[log.outcome] || "?"} ${log.ok}✓/${log.fail}✗`;
+      li.append(name, hint);
+      li.title = log.summary || "";   // 悬停看回禀摘要
+      ul.appendChild(li);
+    }
+  }
+
+  async function refreshMcp() {
+    const data = await fetchJSON("/api/mcp");
+    if (!data || typeof data.mcp !== "string") return;
+    const pre = $("mcp-text");
+    if (!pre) return;
+    pre.textContent = data.mcp;
+  }
+
   // 开新殿按钮（B1 静态按钮在此接活）
   $("btn-new-hall").addEventListener("click", () => {
     if (busy || !ws || ws.readyState !== WebSocket.OPEN) return;
@@ -390,7 +450,7 @@
 
   // 面板轮询：会话列表高频些（动作后要刷新），其余低频
   setInterval(refreshSessions, 8000);
-  setInterval(() => { refreshTeam(); refreshMemory(); }, 30000);
+  setInterval(() => { refreshTeam(); refreshMemory(); refreshSubagentLogs(); }, 30000);
 
   /* ---- 连接与断线（B2：提示 + 每 3 秒自动重连；B3：断线提示去重） ---- */
   let offlineNotified = false;
@@ -402,6 +462,7 @@
       setLamp("on", "● 当值");
       refreshSend();
       refreshSessions(); refreshPersonas(); refreshTeam(); refreshMemory();
+      refreshSubagentLogs(); refreshMcp();
     };
     ws.onmessage = (m) => {
       try { onEvent(JSON.parse(m.data)); } catch { /* 坏消息直接丢弃 */ }

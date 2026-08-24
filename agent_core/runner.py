@@ -428,7 +428,8 @@ class SessionRunner:
 
                 with ThreadPoolExecutor(max_workers=len(dispatch_blocks)) as pool:
                     for block_id, summary in pool.map(_run_one, dispatch_blocks):
-                        self._emit({"type": "subagent_summary", "length": len(summary)})
+                        self._emit({"type": "subagent_summary", "length": len(summary),
+                                    "summary": summary[:300]})
                         results_map[block_id] = summary
             else:
                 for block in dispatch_blocks:
@@ -437,8 +438,9 @@ class SessionRunner:
                         agent_type=block.input.get("agent_type", "neiguan_yingzao"),
                         purpose=block.input.get("purpose", ""),
                     )
-                    self._emit({"type": "subagent_summary", "length": len(summary)})
-                    results_map[block.id] = summary
+                    self._emit({"type": "subagent_summary", "length": len(summary),
+                                "summary": summary[:300]})
+                    results_map[block_id] = summary
 
             for b in tool_blocks:
                 tool_message = {"role": "tool", "tool_call_id": b.id, "content": results_map[b.id]}

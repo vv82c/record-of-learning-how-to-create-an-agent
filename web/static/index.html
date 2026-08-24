@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Emperor Agent · 金銮殿</title>
-<link rel="stylesheet" href="style.css?v=c2">
+<link rel="stylesheet" href="style.css?v=c3">
 </head>
 <body>
 
@@ -65,6 +65,22 @@
     </section>
 
     <section class="panel">
+      <h2>◈ 出巡簿</h2>
+      <!-- C3：子代理派遣日志（悬停看回禀摘要） -->
+      <ul class="subagent-logs" id="subagent-log-list">
+        <li class="hint">（出巡簿装载中……）</li>
+      </ul>
+    </section>
+
+    <section class="panel">
+      <h2>◈ 外务府 · MCP</h2>
+      <details>
+        <summary class="hint">点开查看已连接的 MCP Server 与工具</summary>
+        <pre class="memory-text" id="mcp-text">（清点中……）</pre>
+      </details>
+    </section>
+
+    <section class="panel">
       <h2>◈ 记忆卷宗</h2>
       <details>
         <summary class="hint">点开查看 MEMORY.md / USER.md（只读）</summary>
@@ -104,6 +120,6 @@
 </footer>
 
 <!-- 资源带版本号：改版必换 v 参数，浏览器缓存不再咬住旧文件（B3 踩坑两次后的根治） -->
-<script src="app.js?v=c2" defer></script>
+<script src="app.js?v=c3" defer></script>
 </body>
 </html>

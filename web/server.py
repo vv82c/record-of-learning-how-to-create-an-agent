@@ -33,7 +33,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
 from agent_core import todos as todos_mod
-from agent_core.config import MCP_CONFIG_PATH, PERSONA_DIR
+from agent_core.config import MCP_CONFIG_PATH, PERSONA_DIR, SUBAGENT_LOG_DIR
 from agent_core.mcp_client import connect_all, list_mcp_servers
 from agent_core.memory import MEMORY
 from agent_core.runner import SessionRunner
@@ -78,6 +78,44 @@ async def api_personas():
 @app.get("/api/team")
 async def api_team():
     return {"team": TEAM.list_all()}
+
+
+@app.get("/api/mcp")
+async def api_mcp():
+    # list_mcp_servers 的文本格式（"## server\n- `tool`..."）正好适合面板展示
+    return {"mcp": list_mcp_servers()}
+
+
+@app.get("/api/subagent_logs")
+async def api_subagent_logs(limit: int = 5):
+    """最近的子代理派遣日志（C3）：文件名 + outcome + 失败统计 + 任务摘要。
+
+    每个文件行数很少（start + N·tool + end），直接全读再截断，无需分页。
+    """
+    files = sorted(SUBAGENT_LOG_DIR.glob("*.jsonl"), reverse=True) if SUBAGENT_LOG_DIR.exists() else []
+    logs = []
+    for f in files[:limit]:
+        events = []
+        try:
+            for line in f.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    events.append(json.loads(line))
+        except (OSError, json.JSONDecodeError):
+            continue
+        start = next((e for e in events if e.get("event") == "start"), {})
+        end = next((e for e in reversed(events) if e.get("event") == "end"), {})
+        tool_events = [e for e in events if e.get("event") == "tool"]
+        logs.append({
+            "file": f.name,
+            "agent_type": start.get("agent_type", "?"),
+            "task": (start.get("task") or "")[:60],
+            "outcome": end.get("outcome", "unknown"),
+            "turns": end.get("turns_used", 0),
+            "ok": end.get("ok", len([e for e in tool_events if e.get("ok")])),
+            "fail": end.get("fail", len([e for e in tool_events if not e.get("ok")])),
+            "summary": (end.get("summary") or "")[:150],
+        })
+    return {"logs": logs}
 
 
 class WSConfirmer:
