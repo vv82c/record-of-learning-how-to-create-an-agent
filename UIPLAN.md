@@ -207,3 +207,4 @@
 | 2026-08-24 | 任务 D3 完成并勾选，**UIPLAN 12 项全部完成**：截图入库、README/SUMMARY 收录 | 从终端教学项目到桌面软件的全旅程闭环 |
 | 2026-08-25 | 发布后修复：黑屏/断连根因是本机常驻软件（O+Connect）抢占 8300 端口；run_app.py 改为端口被占自动改选随机空闲口（connect 探测法，弃用 Windows 下会假阳性的 SO_REUSEADDR 绑定检测）；exe 已重打包 | 用户实测反馈驱动的修复；'固定端口'是桌面软件经典陷阱 |
 | 2026-08-25 | 发布后修复②：GBK 内核异常——Windows 中文控制台默认 GBK，模型回复含 emoji 时 print() 抛 UnicodeEncodeError 炸掉内核线程；新增 agent_core/console.py（ensure_utf8_console：stdout/stderr reconfigure 为 UTF-8+replace），三个入口统一接入；exe 重打包 | 用户实测反馈驱动；教训：控制台打印属于 IO 外壳，永远不该有能力杀死内核 |
+| 2026-08-25 | 发布后修复③：单派遣子代理分支 UnboundLocalError——runner.py 该分支复制自并发分支，循环变量 block 漏改为 block_id（多路并发与无派遣测试均踩不中，唯"恰好派一个小太监"触发）；一行修复 + 单派遣路径专项验证 + exe 重打包 | 用户问天气时模型恰好单派遣而踩中：分支覆盖盲区的典型样本；并发/单发/无发三路都该有测试 |

@@ -440,7 +440,7 @@ class SessionRunner:
                     )
                     self._emit({"type": "subagent_summary", "length": len(summary),
                                 "summary": summary[:300]})
-                    results_map[block_id] = summary
+                    results_map[block.id] = summary  # 单派遣分支：修复前误写 block_id（并发分支复制粘贴漏改）
 
             for b in tool_blocks:
                 tool_message = {"role": "tool", "tool_call_id": b.id, "content": results_map[b.id]}
