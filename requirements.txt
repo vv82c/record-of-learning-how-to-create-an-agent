@@ -7,3 +7,4 @@ mcp==2.0.0
 # Web UI（Emperor Agent，任务 A1 起）
 fastapi==0.141.1
 uvicorn[standard]==0.52.4
+pywebview==6.2.1

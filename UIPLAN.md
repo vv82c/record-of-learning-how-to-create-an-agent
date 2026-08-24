@@ -143,10 +143,7 @@
 
 ### 阶段 D：成软件——打包与分发
 
-- [ ] **D1 pywebview 桌面壳**
-  - 要求：`run_app.py` 启动服务并开窗口（标题 Emperor Agent，图标）；关窗即进程干净退出
-    （队友线程、MCP 会话、端口全清）
-  - 【完成标志】一条命令弹出独立窗口；关窗后 `netstat` 无残留监听、无残留 python 进程
+- [x] **D1 pywebview 桌面壳**（✅ 2026-08-24，实测：一条命令弹出"Emperor Agent · 金銮殿"窗口（1280×860）、服务健康、ws 对话可用（11 段 token 流式）；关窗后端口释放、python 进程 0、MCP 子进程 0。开发中修复：猴子补丁 serve 签名不兼容 → 改用端口轮询就绪。注：图标留待 D2 打包时随 exe 资源一起做）
 - [ ] **D2 打包 exe**
   - 要求：PyInstaller 打包（含图标、排除 .env 并在首启引导配置）；体积与启动时间记录
   - 【完成标志】无 Python 环境的干净目录双击 exe 可启动进入对话
@@ -209,3 +206,4 @@
 | 2026-08-24 | 任务 C1 完成并勾选：hook_ask→圣旨弹窗（准奏/驳回/倒计时），hook_decision 事件文案修正 | 弹窗视觉与回执协议分别取证；浏览器自动化输入间歇失灵故回执链路用注入法验证 |
 | 2026-08-24 | 任务 C2 完成并勾选：REST 面板端点（sessions/memory/personas/team）+ ws 消息（new_session/resume/persona），前端四面板接真数据 | 拉取与推送分工：面板数据 REST 拉、动作走 ws；验证用注入法+浏览器截图双轨 |
 | 2026-08-24 | 任务 C3 完成并勾选，**阶段 C 完成**：subagent 事件带摘要、出巡簿/外务府面板、/api/subagent_logs 与 /api/mcp 端点 | 5.2 的日志在 UI 见人；熔断可视化闭环（oxalpha 事件的 UI 答卷） |
+| 2026-08-24 | 任务 D1 完成并勾选：run_app.py 桌面壳（uvicorn 后台线程 + pywebview 主线程 + 端口就绪轮询 + 关窗清理链）；pywebview==6.2.1 锁版本 | 阶段 D 开工；首版猴子补丁 serve(sockets=) 签名不兼容改为轮询端口的朴素方案 |
