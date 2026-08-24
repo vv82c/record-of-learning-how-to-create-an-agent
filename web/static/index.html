@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Emperor Agent · 金銮殿</title>
-<link rel="stylesheet" href="style.css?v=c1">
+<link rel="stylesheet" href="style.css?v=c2">
 </head>
 <body>
 
@@ -33,11 +33,9 @@
   <aside class="sidebar">
     <section class="panel">
       <h2>◈ 偏殿名册</h2>
-      <!-- B1 静态示例：C2 起由会话数据动态渲染 -->
+      <!-- C2 起由 /api/sessions 动态渲染，点击入旧殿 -->
       <ul class="sessions" id="session-list">
-        <li class="active"><span class="hall-name">乾清宫</span><span class="hint">当前</span></li>
-        <li><span class="hall-name">0823 · 夜话</span><span class="hint">14 条</span></li>
-        <li><span class="hall-name">0824 · 晨议</span><span class="hint">6 条</span></li>
+        <li class="hint">（名册装载中……）</li>
       </ul>
       <button class="btn btn-mini" type="button" id="btn-new-hall">＋ 开新殿</button>
     </section>
@@ -52,17 +50,26 @@
 
     <section class="panel">
       <h2>◈ 班底名册</h2>
+      <!-- C2 起由 /api/team 动态渲染 -->
       <ul class="team" id="team-list">
-        <li>传令兵 <span class="hint">当值</span></li>
+        <li class="hint">（名册装载中……）</li>
       </ul>
     </section>
 
     <section class="panel">
       <h2>◈ 换装间</h2>
+      <!-- C2 起由 /api/personas 动态渲染，点击切换 -->
       <div class="personas" id="persona-list">
-        <span class="persona active">太监总管</span>
-        <span class="persona">英式管家</span>
+        <span class="hint">（衣装装载中……）</span>
       </div>
+    </section>
+
+    <section class="panel">
+      <h2>◈ 记忆卷宗</h2>
+      <details>
+        <summary class="hint">点开查看 MEMORY.md / USER.md（只读）</summary>
+        <pre class="memory-text" id="memory-text">（卷宗装载中……）</pre>
+      </details>
     </section>
   </aside>
 
@@ -97,6 +104,6 @@
 </footer>
 
 <!-- 资源带版本号：改版必换 v 参数，浏览器缓存不再咬住旧文件（B3 踩坑两次后的根治） -->
-<script src="app.js?v=c1" defer></script>
+<script src="app.js?v=c2" defer></script>
 </body>
 </html>

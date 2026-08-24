@@ -301,6 +301,16 @@ body {
 }
 .btn-copy:hover { color: var(--liujin); border-color: var(--liujin); }
 
+/* C2：记忆卷宗 */
+.memory-text {
+  color: #bfa06a; font-size: .78rem; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 220px; overflow-y: auto; margin-top: 6px;
+}
+.panel summary { cursor: pointer; }
+.sessions li, .personas .persona { cursor: pointer; }
+.sessions li:hover .hall-name, .persona:hover { color: var(--liujin); }
+
 /* ═══════════ 窗口缩放：窄屏收偏殿，布局不塌 ═══════════ */
 @media (max-width: 860px) {
   .sidebar { width: 190px; }

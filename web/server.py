@@ -32,9 +32,13 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
-from agent_core.config import MCP_CONFIG_PATH
-from agent_core.mcp_client import connect_all
+from agent_core import todos as todos_mod
+from agent_core.config import MCP_CONFIG_PATH, PERSONA_DIR
+from agent_core.mcp_client import connect_all, list_mcp_servers
+from agent_core.memory import MEMORY
 from agent_core.runner import SessionRunner
+from agent_core.sessions import SESSIONS
+from agent_core.team import TEAM
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 # ask 等待回执的超时（秒）：超时按驳回处理；测试时可调小
@@ -53,6 +57,27 @@ app = FastAPI(title="Emperor Agent", lifespan=lifespan)
 @app.get("/api/health")
 async def health():
     return {"ok": True, "app": "Emperor Agent"}
+
+
+# ═══════════ C2：面板数据端点（全部只读，操作走 ws 消息） ═══════════
+@app.get("/api/sessions")
+async def api_sessions():
+    return {"sessions": SESSIONS.list_sessions()}
+
+
+@app.get("/api/memory")
+async def api_memory():
+    return {"memory": MEMORY.read_memory(), "user": MEMORY.read_user()}
+
+
+@app.get("/api/personas")
+async def api_personas():
+    return {"personas": sorted(p.stem for p in PERSONA_DIR.glob("*.md"))}
+
+
+@app.get("/api/team")
+async def api_team():
+    return {"team": TEAM.list_all()}
 
 
 class WSConfirmer:
@@ -129,6 +154,29 @@ async def ws_endpoint(websocket: WebSocket):
             elif kind == "stop":
                 if busy.is_set():
                     runner.request_stop()   # B3 请旨叫停：在途流断流，工具批后收束
+            # ---- C2：会话与人格操作（UI 面板的动作入口） ----
+            elif kind == "new_session":
+                if not busy.is_set():
+                    sid = runner.new_session()
+                    out_queue.put_nowait({"type": "session", "id": sid, "fresh": True})
+                    out_queue.put_nowait({"type": "todos", "todos": todos_mod.TODOS})
+            elif kind == "resume":
+                if not busy.is_set():
+                    target = str(msg.get("id", ""))
+                    if SESSIONS.exists(target):
+                        count = runner.resume(target)
+                        out_queue.put_nowait({"type": "session", "id": target,
+                                              "resumed": True, "messages": count})
+                    else:
+                        out_queue.put_nowait({"type": "error", "message": f"会话不存在：{target}"})
+            elif kind == "persona":
+                target = str(msg.get("name", ""))
+                available = sorted(p.stem for p in PERSONA_DIR.glob("*.md"))
+                if target in available:
+                    runner.switch_persona(target)
+                    out_queue.put_nowait({"type": "persona", "name": target})
+                else:
+                    out_queue.put_nowait({"type": "error", "message": f"未知人格：{target}"})
             elif kind == "send":
                 if busy.is_set():
                     out_queue.put_nowait({"type": "error", "message": "上一条传旨仍在办理中，请稍候"})

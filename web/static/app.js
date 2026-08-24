@@ -230,7 +230,17 @@
         }
         break;
       case "hook_decision":   renderNotice(`[门禁] ${ev.action}：${ev.reason}`); break;
-      case "session":         break;    // C2：偏殿名册
+      case "session":
+        currentSessionId = ev.id;
+        if (ev.resumed) renderNotice(`（已入偏殿 ${ev.id}，共 ${ev.messages} 条旧话，可续谈）`);
+        if (ev.fresh) refreshSessions();
+        refreshSessions();
+        break;
+      case "persona":
+        currentPersona = ev.name;
+        renderNotice(`（已换装：${ev.name}，下轮生效——）`);
+        refreshPersonas();
+        break;
       case "todos":           renderTodos(ev.todos); break;   // B3：差事灯笼
       case "done":
       case "idle":            setLamp("on", "● 当值"); busy = false; refreshSend(); btnStop.hidden = true; break;
@@ -263,6 +273,125 @@
     renderNotice("（已请旨叫停，待总管收束……）");
   });
 
+  /* ---- C2：面板数据（REST 拉取） ---- */
+  let currentSessionId = null;
+  let currentPersona = null;
+
+  async function fetchJSON(url) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) return null;
+      return await r.json();
+    } catch { return null; }
+  }
+
+  function fmtHallName(s) {
+    // "20260824-011257" → "0824 · 01:12"（日期 · 时分）
+    const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})/.exec(s.id || "");
+    const label = m ? `${m[2]}${m[3]} · ${m[4]}:${m[5]}` : (s.id || "?");
+    const preview = (s.preview || "").slice(0, 12);
+    return `${label}${preview ? " · " + preview : ""}`;
+  }
+
+  async function refreshSessions() {
+    const data = await fetchJSON("/api/sessions");
+    if (!data || !Array.isArray(data.sessions)) return;
+    const ul = $("session-list");
+    ul.replaceChildren();
+    if (data.sessions.length === 0) {
+      const li = document.createElement("li");
+      li.className = "hint";
+      li.textContent = "（尚无偏殿）";
+      ul.appendChild(li);
+      return;
+    }
+    for (const s of data.sessions.slice(0, 15)) {
+      const li = document.createElement("li");
+      if (s.id === currentSessionId) li.className = "active";
+      const name = document.createElement("span");
+      name.className = "hall-name";
+      name.textContent = fmtHallName(s);
+      const hint = document.createElement("span");
+      hint.className = "hint";
+      hint.textContent = s.id === currentSessionId ? "当前" : `${s.messages}条`;
+      li.append(name, hint);
+      li.addEventListener("click", () => {
+        if (s.id !== currentSessionId && !busy) resumeSession(s.id);
+      });
+      ul.appendChild(li);
+    }
+  }
+
+  function resumeSession(id) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "resume", id }));
+    renderNotice(`（前往偏殿 ${id}……）`);
+    refreshSessions();
+  }
+
+  async function refreshPersonas() {
+    const data = await fetchJSON("/api/personas");
+    if (!data || !Array.isArray(data.personas)) return;
+    const box = $("persona-list");
+    box.replaceChildren();
+    for (const name of data.personas) {
+      const span = document.createElement("span");
+      span.className = "persona" + (name === currentPersona ? " active" : "");
+      span.textContent = name === "taijian" ? "太监总管"
+                       : name === "guanjia" ? "英式管家" : name;
+      span.addEventListener("click", () => {
+        if (ws && ws.readyState === WebSocket.OPEN && !busy) {
+          ws.send(JSON.stringify({ type: "persona", name }));
+        }
+      });
+      box.appendChild(span);
+    }
+  }
+
+  async function refreshTeam() {
+    const data = await fetchJSON("/api/team");
+    if (!data || typeof data.team !== "string") return;
+    const ul = $("team-list");
+    ul.replaceChildren();
+    const lines = data.team.split("\n").filter(l => l.trim().startsWith("-"));
+    if (lines.length === 0) {
+      const li = document.createElement("li");
+      li.textContent = "暂无队友";
+      ul.appendChild(li);
+      return;
+    }
+    for (const line of lines) {
+      const li = document.createElement("li");
+      const m = /-\s*(.+?)（(.+?)）：(.+)/.exec(line);
+      const name = document.createElement("span");
+      const hint = document.createElement("span");
+      hint.className = "hint";
+      if (m) { name.textContent = `${m[1]} · ${m[2]}`; hint.textContent = m[3]; }
+      else { name.textContent = line.replace(/^-\s*/, ""); }
+      li.append(name, hint);
+      ul.appendChild(li);
+    }
+  }
+
+  async function refreshMemory() {
+    const data = await fetchJSON("/api/memory");
+    if (!data) return;
+    $("memory-text").textContent =
+      `【MEMORY.md · 长期记忆】\n${data.memory.trim()}\n\n【USER.md · 用户画像】\n${data.user.trim()}`;
+  }
+
+  // 开新殿按钮（B1 静态按钮在此接活）
+  $("btn-new-hall").addEventListener("click", () => {
+    if (busy || !ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "new_session" }));
+    renderNotice("（已开新殿——）");
+    refreshSessions();
+  });
+
+  // 面板轮询：会话列表高频些（动作后要刷新），其余低频
+  setInterval(refreshSessions, 8000);
+  setInterval(() => { refreshTeam(); refreshMemory(); }, 30000);
+
   /* ---- 连接与断线（B2：提示 + 每 3 秒自动重连；B3：断线提示去重） ---- */
   let offlineNotified = false;
   function connect() {
@@ -272,6 +401,7 @@
       renderNotice("（已接驾，老奴候旨——）");
       setLamp("on", "● 当值");
       refreshSend();
+      refreshSessions(); refreshPersonas(); refreshTeam(); refreshMemory();
     };
     ws.onmessage = (m) => {
       try { onEvent(JSON.parse(m.data)); } catch { /* 坏消息直接丢弃 */ }
