@@ -11,6 +11,50 @@
   const $ = (id) => document.getElementById(id);
   const chat = $("chat"), input = $("input"), btnSend = $("btn-send"),
         btnStop = $("btn-stop"), btnBack = $("btn-back"), lamp = $("lamp");
+  const veil = $("decree-veil"), decreeText = $("decree-text"), decreeCount = $("decree-count");
+
+  /* ---- C1：圣旨待批弹窗 ----
+     hook_ask → 弹窗 + 倒计时（与服务端 ASK_TIMEOUT 同源配置，超时即驳回按钮自动按下；
+     即使倒计时与服务器有偏差，服务端超时仍 fail-closed，前端只是尽力同步观感）。 */
+  let countdownTimer = null;
+  const ASK_TIMEOUT_MS = 120000;   // 与 web/server.py 的 EMPEROR_ASK_TIMEOUT 默认一致
+
+  function openDecree(reason) {
+    decreeText.textContent = `皇上，此令需您朱批：${reason}`;
+    veil.hidden = false;
+    startCountdown();
+  }
+
+  function closeDecree() {
+    veil.hidden = true;
+    if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+    decreeCount.hidden = true;
+  }
+
+  function startCountdown() {
+    const deadline = Date.now() + ASK_TIMEOUT_MS;
+    decreeCount.hidden = false;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      decreeCount.textContent = `（${left} 秒内未批，将按驳回处置）`;
+      if (left <= 0) { resolveDecree(false, true); }
+    };
+    tick();
+    countdownTimer = setInterval(tick, 1000);
+  }
+
+  function resolveDecree(approved, byTimeout = false) {
+    if (veil.hidden) return;                    // 无待批事项则忽略
+    closeDecree();
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "confirm", approved }));
+    }
+    renderNotice(approved ? "（皇上准奏——）" : byTimeout ? "（超时未批，按驳回处置）" : "（皇上驳回——）",
+                 approved ? "" : "warn");
+  }
+
+  $("btn-approve").addEventListener("click", () => resolveDecree(true));
+  $("btn-deny").addEventListener("click", () => resolveDecree(false));
 
   let ws = null;
   let activeMemorial = null;   // 正在流式渲染的奏折正文
@@ -176,7 +220,15 @@
       case "stop_gate":       renderNotice(`[质量门禁] ${ev.reason}`, "warn"); break;
       case "retry":
       case "error":           renderNotice(String(ev.message || "").trim(), "warn"); break;
-      case "hook_ask":        renderNotice(`[需朱批] ${ev.reason}（圣旨弹窗 C1 上线，未批将超时驳回）`, "warn"); break;
+      case "hook_ask":        openDecree(ev.reason); break;   // C1：圣旨弹窗
+      case "hook_decision":
+        // 弹窗自己点的准奏/驳回已给过提示；服务器回传的 deny 意味着超时或其它否决路径
+        if (ev.action === "deny" && veil.hidden) {
+          renderNotice(`[门禁·驳回] ${ev.reason}`, "warn");
+        } else if (!veil.hidden && ev.action !== "deny") {
+          closeDecree();
+        }
+        break;
       case "hook_decision":   renderNotice(`[门禁] ${ev.action}：${ev.reason}`); break;
       case "session":         break;    // C2：偏殿名册
       case "todos":           renderTodos(ev.todos); break;   // B3：差事灯笼

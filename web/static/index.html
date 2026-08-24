@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Emperor Agent · 金銮殿</title>
-<link rel="stylesheet" href="style.css?v=b3">
+<link rel="stylesheet" href="style.css?v=c1">
 </head>
 <body>
 
@@ -76,11 +76,12 @@
   </div>
 </div>
 
-<!-- ═══════════ 圣旨待批（模态，B1 隐藏备用，C1 接线） ═══════════ -->
+<!-- ═══════════ 圣旨待批（C1：hook_ask 弹窗，准奏/驳回/倒计时） ═══════════ -->
 <div class="veil" id="decree-veil" hidden>
   <div class="decree">
     <h3>圣 旨 待 批</h3>
     <p class="decree-text" id="decree-text">皇上，此令需您朱批：</p>
+    <p class="decree-count" id="decree-count" hidden></p>
     <div class="decree-actions">
       <button class="btn btn-approve" type="button" id="btn-approve">准 奏</button>
       <button class="btn btn-deny" type="button" id="btn-deny">驳 回</button>
@@ -96,6 +97,6 @@
 </footer>
 
 <!-- 资源带版本号：改版必换 v 参数，浏览器缓存不再咬住旧文件（B3 踩坑两次后的根治） -->
-<script src="app.js?v=b3" defer></script>
+<script src="app.js?v=c1" defer></script>
 </body>
 </html>

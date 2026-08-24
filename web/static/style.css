@@ -214,6 +214,14 @@ body {
 }
 .decree-text { line-height: 1.7; letter-spacing: .05em; margin-bottom: 20px;
                word-break: break-all; }
+/* C1：倒计时行与入场动画 */
+.decree-count { color: #d9a253; font-size: .82rem; letter-spacing: .1em;
+                margin: -12px 0 16px; }
+.veil:not([hidden]) .decree { animation: decree-in .18s ease-out; }
+@keyframes decree-in {
+  from { transform: scale(.94); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
 .decree-text code { color: var(--minghuang); background: rgba(0,0,0,.35);
                     padding: 2px 6px; border-radius: 3px; font-size: .88em; }
 .decree-actions { display: flex; gap: 18px; justify-content: center; }
