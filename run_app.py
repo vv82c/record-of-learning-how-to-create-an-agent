@@ -46,6 +46,8 @@ def _ensure_env_or_guide() -> None:
 import uvicorn
 import webview
 
+from agent_core.console import ensure_utf8_console
+
 HOST = "127.0.0.1"
 DEFAULT_PORT = int(os.environ.get("EMPEROR_PORT", "8300"))
 
@@ -85,6 +87,7 @@ def _serve(port: int):
 
 
 def main() -> None:
+    ensure_utf8_console()   # GBK 控制台 print emoji 会炸内核，入口处统一 UTF-8
     _ensure_env_or_guide()
     port = _pick_port()
     if port != DEFAULT_PORT:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 
 from agent_core import todos as todos_mod
+from agent_core.console import ensure_utf8_console
 from agent_core.config import MCP_CONFIG_PATH, PERSONA_DIR
 from agent_core.hooks import confirm_hook_decision
 from agent_core.llm import MODEL  # noqa: F401 （终端横幅历史沿用）
@@ -55,6 +56,7 @@ def terminal_printer(event: dict) -> None:
 
 
 def main():
+    ensure_utf8_console()   # GBK 控制台 print emoji 会炸内核，入口处统一 UTF-8
     # 连接 MCP Server 并把外部工具并入 schema 表
     connect_all(MCP_CONFIG_PATH)
 

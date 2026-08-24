@@ -34,6 +34,7 @@ from fastapi.staticfiles import StaticFiles
 
 from agent_core import todos as todos_mod
 from agent_core.config import MCP_CONFIG_PATH, PERSONA_DIR, SUBAGENT_LOG_DIR
+from agent_core.console import ensure_utf8_console
 from agent_core.mcp_client import connect_all, list_mcp_servers
 from agent_core.memory import MEMORY
 from agent_core.runner import SessionRunner
@@ -43,6 +44,8 @@ from agent_core.team import TEAM
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 # ask 等待回执的超时（秒）：超时按驳回处理；测试时可调小
 ASK_TIMEOUT = float(os.environ.get("EMPEROR_ASK_TIMEOUT", "120"))
+
+ensure_utf8_console()   # GBK 控制台 print emoji 会炸内核，入口处统一 UTF-8
 
 
 @asynccontextmanager

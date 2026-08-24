@@ -206,3 +206,4 @@
 | 2026-08-24 | 任务 D2 完成并勾选：PyInstaller 单文件 exe（38.2MB / 4秒启动）+ 玉玺图标 + 首启 .env 引导；build 产物入 gitignore | 完成标志"无 Python 环境双击可用"以干净目录实测 |
 | 2026-08-24 | 任务 D3 完成并勾选，**UIPLAN 12 项全部完成**：截图入库、README/SUMMARY 收录 | 从终端教学项目到桌面软件的全旅程闭环 |
 | 2026-08-25 | 发布后修复：黑屏/断连根因是本机常驻软件（O+Connect）抢占 8300 端口；run_app.py 改为端口被占自动改选随机空闲口（connect 探测法，弃用 Windows 下会假阳性的 SO_REUSEADDR 绑定检测）；exe 已重打包 | 用户实测反馈驱动的修复；'固定端口'是桌面软件经典陷阱 |
+| 2026-08-25 | 发布后修复②：GBK 内核异常——Windows 中文控制台默认 GBK，模型回复含 emoji 时 print() 抛 UnicodeEncodeError 炸掉内核线程；新增 agent_core/console.py（ensure_utf8_console：stdout/stderr reconfigure 为 UTF-8+replace），三个入口统一接入；exe 重打包 | 用户实测反馈驱动；教训：控制台打印属于 IO 外壳，永远不该有能力杀死内核 |
