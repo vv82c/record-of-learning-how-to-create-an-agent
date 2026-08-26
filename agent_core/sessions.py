@@ -11,10 +11,16 @@ load 时做协议修复：若会话在工具调用中途崩溃，末尾会留下
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
 from .config import SESSIONS_DIR
+
+# 会话文件轮转（红4）：会话没有"关闭"概念（持续追加），长跑会无界增长。
+# 单文件超阈值就把当前 active 文件改名归档，新 append 自动开新文件。
+SESSION_MAX_BYTES = int(os.environ.get("EMPEROR_SESSION_MAX_BYTES", str(10 * 1024 * 1024)))
+SESSION_MAX_BACKUPS = int(os.environ.get("EMPEROR_SESSION_MAX_BACKUPS", "3"))
 
 
 class SessionStore:
@@ -47,8 +53,10 @@ class SessionStore:
         return self._path(session_id).exists()
 
     def append(self, session_id: str, message: dict) -> None:
+        path = self._path(session_id)
+        _rotate_session_if_needed(path)
         record = {"ts": datetime.now().isoformat(timespec="seconds"), "msg": message}
-        with self._path(session_id).open("a", encoding="utf-8") as f:
+        with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def load(self, session_id: str) -> list[dict]:
@@ -121,6 +129,25 @@ class SessionStore:
             lines.append(f"  {s['id']}  [{s['mtime']}] {s['messages']}条  {s['preview']}")
         lines.append("用 /resume <会话ID> 恢复继续。")
         return "\n".join(lines)
+
+
+def _rotate_session_if_needed(path: Path) -> None:
+    """会话文件轮转（红4）：超阈值把当前 active 文件改名归档。
+
+    会话没有“关闭”概念（一直在追加），所以轮转时机 = 单次 append 之前。
+    改法与 hooks 轮转一致：旧文件依次往后挪，最多保留 N 份。
+    """
+    if not path.exists() or path.stat().st_size < SESSION_MAX_BYTES:
+        return
+    stem, parent = path.stem, path.parent
+    for i in range(SESSION_MAX_BACKUPS, 0, -1):
+        src = parent / f"{stem}-{i}.jsonl.bak"
+        if i == SESSION_MAX_BACKUPS:
+            if src.exists(): src.unlink()
+        else:
+            dst = parent / f"{stem}-{i+1}.jsonl.bak"
+            if src.exists(): src.replace(dst)
+    path.replace(parent / f"{stem}-1.jsonl.bak")
 
 
 SESSIONS = SessionStore(SESSIONS_DIR)

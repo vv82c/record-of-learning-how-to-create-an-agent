@@ -16,6 +16,12 @@
 - mcp_client     MCP 外部工具协议
 - hooks          Hook 生命周期框架与内置 Hooks
 - runner         对话内核驱动器（SessionRunner：事件流 + confirmer 注入，终端/Web 双入口共用）
+- console        控制台 UTF-8 保障（红2：包级副作用）
 
 入口程序在项目根目录 main.py。
 """
+
+# 红2：包级副作用——任何 import agent_core 的入口自动获得 GBK→UTF-8 保险，
+# 避免下次新写入口忘了调 ensure_utf8_console 又被 emoji 炸内核。
+from .console import ensure_utf8_console as _ensure_utf8_console
+_ensure_utf8_console()

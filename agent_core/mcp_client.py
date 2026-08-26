@@ -118,7 +118,10 @@ class MCPClient:
                 try:
                     loop.submit(self._close(), timeout=10)
                 except Exception:
-                    pass  # 进程已死时优雅关闭失败是预期内的，直接弃用
+                    # 红3：进程已死/挂死时优雅关闭会超时；不管什么原因放弃 _close，
+                    # 直接清栈清会话，置 None 后下次 list_tools 会重建。
+                    # 不 raise：清失败不能阻断正常的"重建会话"流程。
+                    pass
             self._session = None
             self._exit_stack = None
             self._tools = None  # 重连后工具清单可能变化，清缓存重新拉取

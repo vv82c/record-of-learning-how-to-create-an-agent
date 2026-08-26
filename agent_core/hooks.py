@@ -14,7 +14,7 @@ import time
 from typing import Any
 
 from . import todos as _todos
-from .config import AUDIT_FILE
+from .config import AUDIT_FILE, AUDIT_MAX_BACKUPS, AUDIT_MAX_BYTES
 
 
 class HookDecision:
@@ -204,7 +204,12 @@ class ToolAuditHook(Hook):
     """After Hook 示例：把写类和命令类工具调用记录到 JSONL。
 
     matcher 设为 "write_file|run_command"，由 HookRegistry 自动过滤，
-    不再需要在方法内手动判断工具名。"""
+    不再需要在方法内手动判断工具名。
+
+    写入前做尺寸轮转（红1）：单文件超 AUDIT_MAX_BYTES（默认 5MB）就把旧文件
+    改名 audit-1.jsonl.bak（最旧）、audit-2.jsonl.bak…，最多保留 AUDIT_MAX_BACKUPS 份
+    （默认 3）。避免长跑把磁盘塞爆。
+    """
 
     name = "tool_audit"
     matcher = "write_file|run_command"
@@ -217,9 +222,30 @@ class ToolAuditHook(Hook):
             "input": ctx.get("input"),
         }
         AUDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _rotate_audit_if_needed()
         with AUDIT_FILE.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         print(f"[hook:tool_audit] {name} 已审计到 {AUDIT_FILE}")
+
+
+def _rotate_audit_if_needed() -> None:
+    """审计日志轮转：超阈值把旧文件依次改名，超保留份数则丢弃最旧的。"""
+    if not AUDIT_FILE.exists():
+        return
+    if AUDIT_FILE.stat().st_size < AUDIT_MAX_BYTES:
+        return
+    stem = AUDIT_FILE.stem
+    parent = AUDIT_FILE.parent
+    # 已有备份依次往后挪：audit-N.jsonl.bak → audit-(N+1).jsonl.bak
+    for i in range(AUDIT_MAX_BACKUPS, 0, -1):
+        src = parent / f"{stem}-{i}.jsonl.bak"
+        if i == AUDIT_MAX_BACKUPS:
+            if src.exists(): src.unlink()   # 超出保留份数直接删
+        else:
+            dst = parent / f"{stem}-{i+1}.jsonl.bak"
+            if src.exists(): src.replace(dst)
+    # 当前文件 → audit-1.jsonl.bak
+    AUDIT_FILE.replace(parent / f"{stem}-1.jsonl.bak")
 
 
 class ToolPolicyHook(Hook):
