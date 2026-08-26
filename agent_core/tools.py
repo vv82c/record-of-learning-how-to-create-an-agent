@@ -312,14 +312,41 @@ def _kill_process_tree(proc: subprocess.Popen) -> None:
             proc.kill()
 
 
+def _decode_child_output(data: bytes) -> str:
+    """子进程输出解码（发布后修复④）：UTF-8 → Windows 原生编码（cp936/mbcs）→ replace 兜底。
+
+    背景：中文 Windows 上 cmd/PowerShell/系统命令的输出是 GBK/cp936 字节，
+    直接按 UTF-8 读会成片 U+FFFD（工具卡里的菱形问号）；而 python 子进程
+    自己打印的又常是 UTF-8。无法预知，按序探测。
+
+    不用 locale.getpreferredencoding()——它在 Git Bash/IDE 等环境会被 LANG/LC_*
+    污染返回 "UTF-8"，与 Windows 控制台真实代码页不符。sys.stdout.encoding 才是
+    Python 启动时锁定的真实控制台编码。
+    """
+    candidates = ["utf-8"]
+    win_default = sys.stdout.encoding if sys.stdout else None
+    if win_default and win_default.lower().replace("-", "") not in ("utf8", "utf", "utf16"):
+        candidates.append(win_default)
+    for fallback in ("cp936", "mbcs", "gbk"):
+        if fallback not in candidates:
+            candidates.append(fallback)
+    for enc in candidates:
+        try:
+            return data.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
 def run_shell_command(command: str, timeout: int = COMMAND_TIMEOUT_SECONDS) -> str:
     """执行 shell 命令并返回输出文本；超时则杀掉进程树并返回错误说明。
 
     输出经临时文件中转而不是管道：管道的写端会被孙进程继承，超时杀掉 shell 后
     仍等不到 EOF，整个会话会被卡到孙进程自己退出为止。
+    临时文件用二进制模式写：子进程输出编码（GBK/UTF-8）未知，读回时探测解码。
     """
-    with tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace") as out_f, \
-         tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace") as err_f:
+    with tempfile.TemporaryFile("w+b") as out_f, \
+         tempfile.TemporaryFile("w+b") as err_f:
         popen_kwargs = {"stdout": out_f, "stderr": err_f, "shell": True}
         if sys.platform != "win32":
             popen_kwargs["start_new_session"] = True  # 独立进程组，便于 killpg 整树击杀
@@ -333,7 +360,8 @@ def run_shell_command(command: str, timeout: int = COMMAND_TIMEOUT_SECONDS) -> s
             timed_out = True
         out_f.seek(0)
         err_f.seek(0)
-        stdout, stderr = out_f.read(), err_f.read()
+        stdout = _decode_child_output(out_f.read())
+        stderr = _decode_child_output(err_f.read())
 
     if timed_out:
         text = f"Error: 命令超过 {timeout} 秒未完成，进程树已被强制终止（TimeoutExpired）。"
