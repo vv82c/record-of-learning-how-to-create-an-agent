@@ -179,6 +179,10 @@
   - E4.3 决策快捷键与倒计时可视化：Enter 准奏 / Esc 驳回；倒计时数字改可视进度条
     - 【完成标志】长命令完整可见不截断；两档危险视觉可区分；快捷键全链路可用；超时自动驳回（fail-closed）与终端确认流程回归全过
 
+- [x] **E5 内库账房：对话用度计数板**（✅ 2026-09-03，E2.3 usage 管道的自然延伸。验证：①内核断言——账本初值全零，一轮（含工具）后 `turns=2/prompt=6187/completion=155/cache_hit=5888/last_prompt=3127/last_total=3239`，done 事件带结构化 usage 与 context_window，new/resume 归零；②顺手修复 LoggingHook 字段名 bug 后终端打出真实数字 `prompt=3060 completion=43 cache_hit=2816`；③浏览器——账房条初始全"—"，一轮后 `上下文 2% · 3.2k/131.1k`（进度条 2.5%）`缓存命中 93%` `本轮 3.3k` `累计 6.5k`，开新殿全部归零；④DOM 确认账房元素唯一、位于对话区与传旨栏之间；日志零错误。实测彩蛋：稳定前缀下 DeepSeek 缓存命中 93-95%——账房首次点亮就回答了"我们的 system prompt 设计对缓存友好吗"）
+  - 要求：传旨栏上方一条细横条，实时展示三组用度——①上下文占用率（取法：上一轮 LLM 回报的 `prompt_tokens` 即当前上下文精确占用，除以可配窗口 `LLM_CONTEXT_WINDOW`，缺省 131072）；②缓存命中率（`prompt_cache_hit_tokens / prompt_tokens`，DeepSeek 原生回报，头两轮冷缓存属正常不做报警暗示）；③本轮/累计 tokens。口径为"本次连接"：`new_session`/`resume` 时账本归零（未重放的轮次成本未知，诚实处理）。顺手修复 LoggingHook 字段名 bug（读 `usage.input_tokens` 恒为 `?`，OpenAI SDK 实为 `prompt_tokens/completion_tokens`）
+  - 【完成标志】内核账本随轮次累加、new/resume 重置（脚本断言）；done 事件带结构化 usage 与 context_window；前端账房条数字与内核一致、换殿重置显示；终端 LoggingHook 打出真实数字；账本缺失字段（非 DeepSeek 供应商）时显示 "—" 不报错
+
 ---
 
 ## 四、学习路线（与任务绑定）
@@ -201,6 +205,7 @@
 | E2 | 内核事件协议演进、流式 usage 捕获（usage 块 choices 为空须先于 choices 检查读取）、瞬态 UI 状态的清除出口枚举 | 能画出 turn_start→token→turn_end 的时序并指出 stop/retry/error/断线四个清除出口；能解释占位为何在 retry 时保留、error 时清除 |
 | E3 | DOM 构建式渲染器的安全构造、流式全量重渲（rAF 节流）vs partial-state 解析的取舍、"模型防线≠渲染器防线"的测试分层 | 能解释为什么从不拼 HTML 就不需要过滤层正确性论证；能说出为什么注入测试不能只靠让模型回显攻击串 |
 | E4 | 权限决策的上下文完备性（用户决策质量取决于所见信息）、CSS class 挂载点与选择器作用域对齐、fail-closed 的前后端观感同步 | 能说出"reason 截断"为什么不该靠加长截断解决而该走结构化字段；能指出弹窗超时关窗是哪个事件驱动的 |
+| E5 | 上下文占用的精确取法（上轮 prompt_tokens 即真实占用，免估算）、缓存命中与请求前缀一致性的关系、用量口径设计（连接级 vs 会话级） | 能解释为什么上下文占用不需要 tokenizer；能说出什么样的 prompt 改动会打爆缓存命中 |
 
 ---
 
@@ -257,3 +262,4 @@
 | 2026-09-03 | **E3.1 渲染方案评审结论（E3 门禁）**：采用**自写 DOM 构建式迷你渲染器**，否决 marked.js + DOMPurify。理由：①渲染全程 createElement/createTextNode、从不拼 HTML，与 B2"textContent-only 防注入"约定同构，注入面由构造归零，无需过滤层正确性论证；②零依赖、约百行，"零构建/初学者可读"承诺不破；③计划范围五类（标题/列表/代码块/加粗斜体/行内 code）够覆盖本 Agent 的中文回复形态，**链接刻意不渲染**（五类之外的 URL 按纯文本显示，消灭 `javascript:` 注入面）；④表格/任务列表等如未来需要，再评估升级并留痕。流式渲染策略：token 增量累加进缓冲，requestAnimationFrame 节流全量重渲（回复量级 KB 级，重渲成本可忽略，换取解析器无 partial-state 复杂度） | E3.2/E3.3 准予动工 |
 | 2026-09-03 | 任务 E3 完成并勾选：**E3.2** system prompt 增补 Markdown 排版条款（行事规矩第 9 条，中性措辞，人格映射不受影响）；**E3.3** 前端五类渲染 + 宫廷化 CSS（标题鎏金楷体、代码块墨底 Consolas、行内 code 暗金），reply_end 冲刷未决 rAF 帧；注入验证新增 `window.__emperor_md` 测试钩子导出渲染器。终端端到端回归通过（人格前缀/工具调用/Markdown 输出三证）；版本号 v=e2→v=e3→v=e3b | 双防线发现：模型人格自身拒绝原样回显攻击串（软防线，不可依赖），故注入测试必须经测试钩子直调真实渲染器（硬防线确定性验证）——0 危险元素、字面全保留。验证工具坑再记两条：IAB 截屏管线在长对话页面上会卡死（换计算样式审计做视觉代理）；cua.click 物理点击时灵时不灵（DOM click 可靠） |
 | 2026-09-03 | 任务 E4 完成并勾选，**阶段 E 体验打磨全部收官**：**E4.1** hook_ask 结构化携带 `{tool, input, level}`（reason 的 120 字符截断保留原文案，完整参数走新字段进等宽 code 块）；**E4.2** HookDecision 加可选 `level`（"confirm"/"high"，向后兼容），ToolPolicyHook 敏感路径→confirm、外发发布类→high，弹窗高危档边框/标题/进度条转朱砂；**E4.3** Enter 准奏/Esc 驳回全局快捷键 + 倒计时可视进度条；顺手修复 C1 遗留缺陷——服务端超时驳回时前端弹窗不关闭（deny 到达且 veil 开着则 closeDecree）。全矩阵实测：136 字符长命令 code 块完整不截断、两档视觉区分（实测抓到选择器错位 bug 并修复）、快捷键准奏/驳回双路、5s 超时 fail-closed 弹窗同步关、终端非交互默认拒绝零回归；版本号 v=e3b→v=e4→v=e4b | 两处教学级发现：①"加长 reason 截断"是错解，决策上下文完备性要走结构化字段——截断文案给模型看，完整参数给人看；②CSS class 挂载点（.veil）与选择器作用域（.decree.high）错位是静默失效——计算样式审计抓到（class 查得到、样式没生效），纯 DOM 快照看不出 |
+| 2026-09-03 | 新增任务 E5「内库账房：对话用度计数板」并完成勾选：config 加 `LLM_CONTEXT_WINDOW`（缺省 131072）；SessionRunner 会话账本（prompt/completion/cache_hit/turns/last_prompt/last_total）随轮次累加、new/resume 归零，done 事件带 `usage` + `context_window`；前端传旨栏上方细横条——上下文占用进度条（上轮 prompt_tokens/窗口，免估算）、缓存命中率、本轮/累计 tokens，字段缺失显示"—"；顺手修复 LoggingHook 读 `usage.input_tokens` 恒为 `?` 的字段名 bug（实为 prompt_tokens/completion_tokens）。内核断言 + 终端 + 浏览器三轨验证通过；版本号 v=e4b→v=e5 | 用户需求"底下小计数板"恰好全部由既有数据免费支撑：上轮 prompt_tokens 就是上下文精确占用、DeepSeek 原生回报缓存命中。实测即得结论：稳定前缀下命中率 93-95%——可观测性建设第一次点亮就产出了诊断价值 |

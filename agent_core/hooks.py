@@ -198,7 +198,9 @@ class LoggingHook(Hook):
         if usage:
             print(
                 f"[hook:logging] turn finished in {duration_ms:.1f}ms | "
-                f"input={getattr(usage, 'input_tokens', '?')} output={getattr(usage, 'output_tokens', '?')}"
+                f"prompt={getattr(usage, 'prompt_tokens', '?')} "
+                f"completion={getattr(usage, 'completion_tokens', '?')} "
+                f"cache_hit={getattr(usage, 'prompt_cache_hit_tokens', '?')}"
             )
         else:
             print(f"[hook:logging] turn finished in {duration_ms:.1f}ms")

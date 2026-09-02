@@ -22,7 +22,7 @@ from types import SimpleNamespace
 from openai import APIConnectionError, InternalServerError, RateLimitError
 
 from . import memory_compact, todos as todos_mod
-from .config import PERSONA_DIR
+from .config import CONTEXT_WINDOW, PERSONA_DIR
 from .hooks import HOOKS, HookDecision, confirm_hook_decision
 from .llm import MODEL, assistant_to_dict, client, to_tool_call
 from .mcp_client import build_tool_schemas
@@ -246,7 +246,24 @@ class SessionRunner:
         self.history: list[dict] = []
         self.session_id = SESSIONS.new_session()
         self._stop = threading.Event()
+        self._usage = self._fresh_usage()   # E5 内库账房：本次连接的用度账本
         self._emit({"type": "session", "id": self.session_id})
+
+    @staticmethod
+    def _fresh_usage() -> dict:
+        return {"turns": 0, "prompt": 0, "completion": 0, "cache_hit": 0,
+                "last_prompt": None, "last_total": None}
+
+    def _usage_acc(self, usage) -> None:
+        """累加一次 LLM 调用的 usage（E5）。字段缺失（非 DeepSeek 供应商）按 0 计，
+        前端对 0/None 显示"—"，不报错。"""
+        u = self._usage
+        u["turns"] += 1
+        u["prompt"] += getattr(usage, "prompt_tokens", 0) or 0
+        u["completion"] += getattr(usage, "completion_tokens", 0) or 0
+        u["cache_hit"] += getattr(usage, "prompt_cache_hit_tokens", 0) or 0
+        u["last_prompt"] = getattr(usage, "prompt_tokens", None)
+        u["last_total"] = getattr(usage, "total_tokens", None)
 
     def request_stop(self) -> None:
         """请旨叫停（B3）：在途 LLM 流立即断流返回部分内容；在途工具不硬杀，
@@ -257,6 +274,7 @@ class SessionRunner:
     def new_session(self) -> str:
         self.session_id = SESSIONS.new_session()
         self.history = []
+        self._usage = self._fresh_usage()   # E5：开新殿账本归零
         todos_mod.clear_todos()
         self._emit({"type": "session", "id": self.session_id, "fresh": True})
         return self.session_id
@@ -265,6 +283,7 @@ class SessionRunner:
         loaded = SESSIONS.load(session_id)
         self.session_id = session_id
         self.history = loaded
+        self._usage = self._fresh_usage()   # E5：resume 归零重计（旧轮次成本未重放，诚实口径）
         self._emit({"type": "session", "id": session_id, "resumed": True, "messages": len(loaded)})
         return len(loaded)
 
@@ -289,6 +308,9 @@ class SessionRunner:
             "type": "done", "reply": reply,
             "duration_ms": round((time.perf_counter() - started) * 1000, 1),
             "tokens": self._turn_tokens,
+            # E5 内库账房：本次连接的累计用度 + 模型窗口（前端算占用率）
+            "usage": dict(self._usage),
+            "context_window": CONTEXT_WINDOW,
         })
         return reply
 
@@ -409,6 +431,8 @@ class SessionRunner:
             turn_total = getattr(turn_usage, "total_tokens", None) if turn_usage else None
             if turn_total:
                 self._turn_tokens = (self._turn_tokens or 0) + turn_total
+            if turn_usage is not None:
+                self._usage_acc(turn_usage)   # E5：入账本
 
             assistant_message = assistant_to_dict(message)
             self.history.append(assistant_message)

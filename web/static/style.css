@@ -284,6 +284,27 @@ body {
 .btn-approve:hover { box-shadow: 0 0 12px rgba(123,166,151,.5); }
 .btn-deny:hover { box-shadow: 0 0 12px rgba(185,58,50,.5); }
 
+/* ═══════════ E5：内库账房——对话用度计数板 ═══════════ */
+.ledger {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  padding: 5px 18px;
+  background: linear-gradient(0deg, #1c0f0a, #190d09);
+  border-top: 1px dashed rgba(212,175,55,.3);
+  font-size: .78rem; color: #9b855c; letter-spacing: .06em;
+}
+.ledger-title { color: var(--liujin-dim); font-family: var(--font-title); letter-spacing: .15em; }
+.ledger-item { display: inline-flex; align-items: center; gap: 6px; }
+.ledger-bar {
+  display: inline-block; width: 72px; height: 5px;
+  background: rgba(0,0,0,.45); border: 1px solid rgba(212,175,55,.3);
+  border-radius: 999px; overflow: hidden;
+}
+.ledger-bar-fill {
+  display: block; height: 100%; width: 0%;
+  background: var(--qingyu); border-radius: 999px;
+  transition: width .4s ease;
+}
+
 /* ═══════════ 传旨输入栏 ═══════════ */
 .decree-bar {
   display: flex; gap: 14px; align-items: flex-end;

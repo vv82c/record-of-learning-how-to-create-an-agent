@@ -14,6 +14,9 @@
   const veil = $("decree-veil"), decreeText = $("decree-text"), decreeCount = $("decree-count");
   const decreeCode = $("decree-code"), decreeTimer = $("decree-timer"), decreeBar = $("decree-bar");
   const starter = $("starter");   // E1.4：空状态示例圣旨卡
+  const ledgerCtx = $("ledger-ctx"), ledgerCtxBar = $("ledger-ctx-bar"),
+        ledgerCache = $("ledger-cache"), ledgerTurn = $("ledger-turn"),
+        ledgerTotal = $("ledger-total");   // E5：内库账房
 
   /* ---- C1：圣旨待批弹窗 ----
      hook_ask → 弹窗 + 倒计时（与服务端 ASK_TIMEOUT 同源配置，超时即驳回按钮自动按下；
@@ -437,6 +440,7 @@
         break;
       case "session":
         hideThinking();          // 换殿/重连不残留上一殿的拟旨占位
+        resetLedger();           // E5：换殿账本归零（内核已重置，前端观感对齐）
         currentSessionId = ev.id;
         if (ev.resumed) {
           hasConversation = ev.messages > 0;
@@ -464,6 +468,7 @@
           if (ev.tokens) meta += ` · ${ev.tokens} tokens`;
           lastMemorialSign.textContent += meta;
         }
+        renderLedger(ev.usage, ev.context_window);   // E5：账房入账
         finishTurn();
         break;
       case "idle":            finishTurn(); break;
@@ -480,6 +485,40 @@
 
   function finishTurn() {
     setLamp("on", "● 当值"); busy = false; refreshSend(); btnStop.hidden = true;
+  }
+
+  /* ---- E5：内库账房——用度计数板 ----
+     数据全部来自 done 事件的 usage（内核按连接累加，new/resume 归零）。
+     上下文占用 = 上一轮 prompt_tokens / 窗口（精确值，非估算）；
+     缓存命中 = cache_hit / prompt（头两轮冷缓存属正常，不做报警暗示）。 */
+  function fmtTok(v) {
+    if (typeof v !== "number" || isNaN(v)) return "—";
+    return v >= 1000 ? (v / 1000).toFixed(1) + "k" : String(v);
+  }
+
+  function renderLedger(usage, contextWindow) {
+    if (!usage || typeof usage !== "object") return;
+    const ctxWin = typeof contextWindow === "number" && contextWindow > 0 ? contextWindow : null;
+    if (usage.last_prompt != null && ctxWin) {
+      const pct = Math.min(100, (usage.last_prompt / ctxWin) * 100);
+      ledgerCtxBar.style.width = pct.toFixed(1) + "%";
+      ledgerCtx.textContent = `${pct.toFixed(0)}% · ${fmtTok(usage.last_prompt)}/${fmtTok(ctxWin)}`;
+    } else {
+      ledgerCtxBar.style.width = "0%";
+      ledgerCtx.textContent = "—";
+    }
+    ledgerCache.textContent = usage.prompt > 0
+      ? Math.round((usage.cache_hit / usage.prompt) * 100) + "%" : "—";
+    ledgerTurn.textContent = fmtTok(usage.last_total);
+    ledgerTotal.textContent = fmtTok(usage.prompt + usage.completion);
+  }
+
+  function resetLedger() {
+    ledgerCtxBar.style.width = "0%";
+    ledgerCtx.textContent = "—";
+    ledgerCache.textContent = "—";
+    ledgerTurn.textContent = "—";
+    ledgerTotal.textContent = "—";
   }
 
   /* ---- E1.1：输入框随内容自动撑高（上限 140px 由 CSS max-height 把守） ---- */
