@@ -89,6 +89,12 @@
   let ws = null;
   let activeMemorial = null;   // 正在流式渲染的奏折正文
   let lastMemorialSign = null; // E2.3：最近一份奏折的落款（done 时补耗时/tokens）
+  let activeThinkBox = null;   // G4：圣思折叠段（思维链）
+  let activeThinkBody = null;
+  let lastMemorialRegen = null;// G3：最近一份奏折的"另拟"钮（finishTurn 时只留最后一份）
+  let regenButtons = [];
+  let editMode = false;        // G3：改旨模式（下一次传旨按 edit_send 送出）
+  let lastZhuPi = null;        // G3：只有最后一条朱批可点改旨
   let turnHasMemorial = false; // 本轮是否产生过奏折（防 error 收场时把落款写到旧奏折）
   let pendingTools = [];       // 已 tool_start 未 tool_end 的卡片（内核顺序执行，按名配对）
   let busy = false;
@@ -112,16 +118,38 @@
 
   function renderZhuPi(text) {
     const el = document.createElement("div");
-    el.className = "zhu-pi";
+    el.className = "zhu-pi editable";
+    el.title = "点击改旨（替换上一问重新办理）";
     el.textContent = text;
+    if (lastZhuPi) { lastZhuPi.classList.remove("editable"); lastZhuPi.title = ""; }
+    const mine = el;
+    el.addEventListener("click", () => {
+      if (busy || mine !== lastZhuPi) return;
+      editMode = true;
+      input.value = text;
+      autoGrow();
+      input.placeholder = "改旨中……送出将替换上一问（Esc 取消）";
+      input.focus();
+    });
+    lastZhuPi = el;
     addNode(el);
   }
 
   function renderMemorialStart() {
+    if (activeMemorial) return;   // G4：reasoning_start 已先建好奏折，防重入
     hideThinking();
     turnHasMemorial = true;
     const art = document.createElement("article");
     art.className = "memorial";
+    // G4：圣思折叠段——思维链流式写入，答完自动收起
+    const think = document.createElement("details");
+    think.className = "think-box";
+    think.hidden = true;
+    const thinkSum = document.createElement("summary");
+    thinkSum.textContent = "圣思（思维链，点开可阅）";
+    const thinkBody = document.createElement("div");
+    thinkBody.className = "think-body";
+    think.append(thinkSum, thinkBody);
     const body = document.createElement("div");
     body.className = "memorial-body";
     const foot = document.createElement("div");
@@ -129,15 +157,45 @@
     const sign = document.createElement("span");
     sign.textContent = "老奴叩禀";
     lastMemorialSign = sign;
+    const regenBtn = document.createElement("button");   // G3：另拟
+    regenBtn.type = "button";
+    regenBtn.className = "btn-copy";
+    regenBtn.textContent = "另拟";
+    regenBtn.hidden = true;
+    regenBtn.addEventListener("click", requestRegen);
+    regenButtons.push(regenBtn);
+    lastMemorialRegen = regenBtn;
     const copyBtn = document.createElement("button");
     copyBtn.type = "button";
     copyBtn.className = "btn-copy";
     copyBtn.textContent = "誊抄";
-    foot.append(sign, copyBtn);
-    art.append(body, foot);
+    foot.append(sign, regenBtn, copyBtn);
+    art.append(think, body, foot);
     activeMemorial = body;
+    activeThinkBox = think;
+    activeThinkBody = thinkBody;
     mdBuffer = "";
     addNode(art);
+  }
+
+  /* G3：显示与历史对齐——回滚后把屏幕上对应的旧内容收走 */
+  function clearFromLastZhuPi(includeZhuPi) {
+    const children = [...chat.children];
+    const idx = children.indexOf(lastZhuPi);
+    if (idx < 0) return;
+    children.slice(includeZhuPi ? idx : idx + 1).forEach(el => el.remove());
+  }
+
+  /* G3：另拟——原问重跑，服务端先回滚历史 */
+  function requestRegen() {
+    if (busy || !ws || ws.readyState !== WebSocket.OPEN) return;
+    clearFromLastZhuPi(false);   // 收走上一份回答（朱批保留）
+    ws.send(JSON.stringify({ type: "regen" }));
+    busy = true;
+    setLamp("busy", "● 行走中");
+    btnStop.hidden = false;
+    refreshSend();
+    renderNotice("（请旨另拟，重办此差——）");
   }
 
   /* ---- B3：誊抄（事件委托，动态卡片无需逐个绑） ---- */
@@ -388,7 +446,16 @@
   function onEvent(ev) {
     switch (ev.type) {
       case "user_echo":       hasConversation = true; starter.hidden = true; renderZhuPi(ev.text); break;
-      case "reply_start":     renderMemorialStart(); break;
+      case "reasoning_start": // G4：思维链先于正文，奏折带圣思段
+        renderMemorialStart();
+        activeThinkBox.hidden = false;
+        activeThinkBox.open = true;
+        break;
+      case "reasoning":       activeThinkBody.textContent += ev.text; scrollBottom(); break;
+      case "reply_start":
+        renderMemorialStart();
+        if (activeThinkBox) activeThinkBox.open = false;   // 正文开写，圣思收起
+        break;
       case "token":           renderToken(ev.text); break;
       case "reply_end":
         // 冲刷未决的 rAF 帧：流结束时的最终 Markdown 状态必须落定
@@ -441,6 +508,7 @@
       case "session":
         hideThinking();          // 换殿/重连不残留上一殿的拟旨占位
         resetLedger();           // E5：换殿账本归零（内核已重置，前端观感对齐）
+        editMode = false;        // G3：换殿退出改旨模式
         currentSessionId = ev.id;
         if (ev.resumed) {
           hasConversation = ev.messages > 0;
@@ -456,6 +524,14 @@
         currentPersona = ev.name;
         renderNotice(`（已换装：${ev.name}，下轮生效——）`);
         refreshPersonas();
+        break;
+      case "memory_compacted":// G1：压缩对用户可见
+        renderNotice(`（老奴已将前事 ${ev.removed} 条沉淀入记忆卷宗——）`);
+        refreshMemory();
+        break;
+      case "session_title":   // G2：本殿题名
+        renderNotice(`（此殿题名：「${ev.title}」）`);
+        refreshSessions();
         break;
       case "todos":           renderTodos(ev.todos); break;   // B3：差事灯笼
       case "turn_start":      showThinking(); break;          // E2.1：拟旨占位
@@ -485,6 +561,8 @@
 
   function finishTurn() {
     setLamp("on", "● 当值"); busy = false; refreshSend(); btnStop.hidden = true;
+    regenButtons.forEach(b => { b.hidden = true; });   // G3：只保留最新奏折的另拟钮
+    if (lastMemorialRegen) lastMemorialRegen.hidden = false;
   }
 
   /* ---- E5：内库账房——用度计数板 ----
@@ -558,9 +636,9 @@
   }
 
   /* 发送动作本体：守卫 + 入队 + 忙置位。传旨栏与 E1.4 示例圣旨卡共用。 */
-  function sendText(text) {
+  function sendText(text, kind = "send") {
     if (!text || busy || !ws || ws.readyState !== WebSocket.OPEN) return false;
-    ws.send(JSON.stringify({ type: "send", text }));
+    ws.send(JSON.stringify({ type: kind, text }));
     rememberInput(text);
     busy = true;
     setLamp("busy", "● 行走中");
@@ -571,7 +649,10 @@
 
   function send() {
     const text = input.value.trim();
-    if (!sendText(text)) return;
+    if (!sendText(text, editMode ? "edit_send" : "send")) return;
+    if (editMode) { clearFromLastZhuPi(true); lastZhuPi = null; }   // 改旨：旧问旧答一起收走
+    editMode = false;
+    refreshSend();   // 恢复常规占位提示（退出改旨模式）
     input.value = "";
     autoGrow();
   }
@@ -883,6 +964,10 @@
   btnSend.addEventListener("click", send);
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); return; }
+    if (e.key === "Escape" && editMode) {   // G3：改旨可反悔
+      editMode = false;
+      refreshSend();
+    }
     if (e.key === "ArrowUp" && caretOnFirstLine() && inputHistory.length) {
       e.preventDefault();
       if (histIndex === -1) { histDraft = input.value; histIndex = inputHistory.length - 1; }

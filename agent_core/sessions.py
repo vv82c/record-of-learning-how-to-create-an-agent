@@ -29,7 +29,34 @@ class SessionStore:
     def __init__(self, sessions_dir: Path):
         self.dir = sessions_dir
         self.dir.mkdir(parents=True, exist_ok=True)
+        self.titles_path = self.dir / "titles.json"   # G2：会话标题（list_sessions 只扫 *.jsonl，不会误列）
         self._used_ids: set[str] = set()  # 同秒多次 new_session 的进程内撞名防护
+
+    # ---- G2：标题存取（独立 JSON，避免动全保真会话文件） ----
+    def _load_titles(self) -> dict:
+        if not self.titles_path.exists():
+            return {}
+        try:
+            return json.loads(self.titles_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def set_title(self, session_id: str, title: str) -> None:
+        data = self._load_titles()
+        data[session_id] = title
+        self.titles_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def get_title(self, session_id: str) -> str:
+        return self._load_titles().get(session_id, "")
+
+    # ---- G3：回滚截断（另拟/改旨：文件行数与 history 一一对应，按前缀重写） ----
+    def truncate(self, session_id: str, keep: int) -> None:
+        path = self._path(session_id)
+        if not path.exists():
+            return
+        lines = [l for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        path.write_text("".join(l + "\n" for l in lines[:keep]), encoding="utf-8")
 
     def new_session(self) -> str:
         """时间戳命名，同秒冲突时加序号。文件懒创建：首次 append 才落盘。
@@ -112,11 +139,13 @@ class SessionStore:
                 if msg.get("role") == "user":
                     first_user = str(msg.get("content", ""))[:30]
                     break
+            # G2：有 LLM 生成的标题优先（偏殿名册"像人话"的关键）
+            preview = self.get_title(f.stem) or first_user or "(空会话)"
             sessions.append({
                 "id": f.stem,
                 "messages": len(lines),
                 "mtime": datetime.fromtimestamp(f.stat().st_mtime).strftime("%m-%d %H:%M"),
-                "preview": first_user or "(空会话)",
+                "preview": preview,
             })
         return sessions
 

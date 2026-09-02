@@ -305,6 +305,29 @@ body {
 }
 .model-form input:focus { border-color: var(--liujin); }
 
+/* ═══════════ G：人性化交互（圣思/改旨/另拟） ═══════════ */
+/* G4：圣思折叠段——思维链 */
+.think-box {
+  margin-bottom: 10px; border: 1px dashed rgba(212,175,55,.3);
+  border-radius: 4px; background: rgba(0,0,0,.25);
+}
+.think-box summary {
+  cursor: pointer; padding: 5px 10px; list-style: none;
+  color: var(--liujin-dim); font-family: var(--font-title);
+  font-size: .8rem; letter-spacing: .15em; user-select: none;
+}
+.think-box summary::-webkit-details-marker { display: none; }
+.think-box[open] summary { color: var(--liujin); border-bottom: 1px dashed rgba(212,175,55,.2); }
+.think-body {
+  padding: 8px 12px; color: #9c8a67; font-size: .82rem; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 200px; overflow-y: auto;
+}
+/* G3：最后一条朱批可点改旨；另拟钮与誊抄同款 */
+.zhu-pi.editable { cursor: pointer; }
+.zhu-pi.editable:hover { border-color: var(--zhusha); box-shadow: 0 0 8px rgba(185,58,50,.3); }
+.memorial-foot .btn-regen { margin-right: 6px; }
+
 /* ═══════════ E5：内库账房——对话用度计数板 ═══════════ */
 .ledger {
   display: flex; align-items: center; gap: 18px; flex-wrap: wrap;

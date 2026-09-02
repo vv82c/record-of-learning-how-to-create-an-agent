@@ -75,6 +75,8 @@ def build_system_prompt(query: str = "", persona: str = DEFAULT_PERSONA) -> str:
    - spawn_teammate：固定班底，有名字、角色、状态和 inbox，可持续协作。
 9. 回复使用 Markdown 结构化排版，便于界面渲染与阅读：分节用 ## 标题，要点用列表，
    命令与代码放入 ``` 围栏代码块（标注语言），关键结论加粗；一两句话的简短寒暄不必刻意排版。
+10. 用户交代"记住…"或对话中出现值得长期保留的稳定事实（偏好、背景、项目约定）时，
+   调用 save_memory 工具记入长期记忆；寒暄与一次性细节不要记，也不要口头声称记住了。
 
 【子代理身份选择】
 优先选择权限最窄、职司最贴合的身份：
@@ -173,6 +175,7 @@ def _consume_stream(stream, on_event=None, stop_event=None):
     content_parts: list[str] = []
     tool_acc: dict[int, dict] = {}
     header_sent = False
+    reasoning_sent = False   # G4：思维链只发一次 start
     usage = None
     try:
         for chunk in stream:
@@ -195,6 +198,13 @@ def _consume_stream(stream, on_event=None, stop_event=None):
                     header_sent = True
                 _emit_to(on_event, {"type": "token", "text": piece})
                 content_parts.append(piece)
+            # G4：思维链（DeepSeek 系 delta.reasoning_content）流式转发，不写入 history
+            piece_r = getattr(delta, "reasoning_content", None)
+            if piece_r:
+                if not reasoning_sent:
+                    _emit_to(on_event, {"type": "reasoning_start"})
+                    reasoning_sent = True
+                _emit_to(on_event, {"type": "reasoning", "text": piece_r})
             for tc in getattr(delta, "tool_calls", None) or []:
                 slot = tool_acc.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
                 if tc.id:
@@ -252,6 +262,7 @@ class SessionRunner:
         self.session_id = SESSIONS.new_session()
         self._stop = threading.Event()
         self._usage = self._fresh_usage()   # E5 内库账房：本次连接的用度账本
+        self._titled = False                # G2：本会话是否已命名
         self._emit({"type": "session", "id": self.session_id})
 
     @staticmethod
@@ -280,6 +291,7 @@ class SessionRunner:
         self.session_id = SESSIONS.new_session()
         self.history = []
         self._usage = self._fresh_usage()   # E5：开新殿账本归零
+        self._titled = False
         todos_mod.clear_todos()
         self._emit({"type": "session", "id": self.session_id, "fresh": True})
         return self.session_id
@@ -289,6 +301,7 @@ class SessionRunner:
         self.session_id = session_id
         self.history = loaded
         self._usage = self._fresh_usage()   # E5：resume 归零重计（旧轮次成本未重放，诚实口径）
+        self._titled = bool(SESSIONS.get_title(session_id))   # 旧殿已有题名则不再起
         self._emit({"type": "session", "id": session_id, "resumed": True, "messages": len(loaded)})
         return len(loaded)
 
@@ -303,11 +316,47 @@ class SessionRunner:
     # ---- 对外：对话入口 ----
     def send(self, user_text: str) -> str:
         self._stop.clear()
-        self._turn_tokens = None   # E2.3：本轮全部 LLM 调用的 tokens 总量（供应商提供时才有值）
-        started = time.perf_counter()
         user_message = {"role": "user", "content": user_text}
         self.history.append(user_message)
         self.remember(user_message)
+        return self._finish_round()
+
+    # ---- G3：另拟 / 改旨 ----
+    def _last_real_user_index(self) -> int | None:
+        """最后一条真实用户消息的下标（跳过 Stop 门禁自动注入的提醒）。"""
+        for i in range(len(self.history) - 1, -1, -1):
+            m = self.history[i]
+            if m.get("role") == "user" and not str(m.get("content", "")).startswith("Stop Hook 阻止本轮结束"):
+                return i
+        return None
+
+    def regenerate(self) -> str:
+        """另拟：丢弃最后一条用户消息之后的全部内容（保留该消息），重跑本轮。"""
+        self._stop.clear()
+        idx = self._last_real_user_index()
+        if idx is None:
+            return ""
+        self.history = self.history[:idx + 1]
+        SESSIONS.truncate(self.session_id, len(self.history))
+        return self._finish_round()
+
+    def edit_last(self, new_text: str) -> str:
+        """改旨：撤回最后一条用户消息（连同其回复），换成新文本重跑。"""
+        self._stop.clear()
+        idx = self._last_real_user_index()
+        if idx is None:
+            return self.send(new_text)
+        self.history = self.history[:idx]
+        SESSIONS.truncate(self.session_id, len(self.history))
+        user_message = {"role": "user", "content": new_text}
+        self.history.append(user_message)
+        self.remember(user_message)
+        return self._finish_round()
+
+    def _finish_round(self) -> str:
+        """send/regenerate/edit_last 共用的收束：计时跑主循环、发 done、起标题。"""
+        self._turn_tokens = None   # E2.3：本轮全部 LLM 调用的 tokens 总量（供应商提供时才有值）
+        started = time.perf_counter()
         reply = self._run_loop()
         self._emit({
             "type": "done", "reply": reply,
@@ -317,7 +366,34 @@ class SessionRunner:
             "usage": dict(self._usage),
             "context_window": llm.CONTEXT_WINDOW,
         })
+        self._maybe_title(reply)
         return reply
+
+    # ---- G2：会话自动命名 ----
+    def _maybe_title(self, reply: str) -> None:
+        """新会话第一轮结束后用一次微型 LLM 调用起 ≤10 字标题；失败静默（标题缺失不影响对话）。"""
+        if self._titled or not reply.strip() or llm.client is None:
+            return
+        user_text = next((m.get("content") for m in reversed(self.history)
+                          if m.get("role") == "user"), "")
+        try:
+            resp = llm.client.chat.completions.create(
+                # 推理模型会把 token 先花在思维链上，上限太小会导致正文为空
+                model=llm.MODEL, max_tokens=1024, temperature=0,
+                messages=[
+                    {"role": "system",
+                     "content": "给这段对话起一个不超过10字的中文标题。只输出标题本身，不要引号、句号或任何解释。"},
+                    {"role": "user", "content": f"{user_text}\n\n（助手回复开头：{reply[:80]}）"},
+                ],
+            )
+            title = (resp.choices[0].message.content or "").strip().splitlines()[0].strip()
+            title = title.strip('"「」『』。，,')[:16]
+        except Exception:
+            return
+        if title:
+            self._titled = True
+            SESSIONS.set_title(self.session_id, title)
+            self._emit({"type": "session_title", "id": self.session_id, "title": title})
 
     # ---- 内部 ----
     def _emit(self, event: dict) -> None:
@@ -462,7 +538,10 @@ class SessionRunner:
                     continue
                 reply = stop_ctx.get("reply", reply)
                 # ---- 记忆压缩（history 超阈值时沉淀）----
+                _before = len(self.history)
                 self.history = memory_compact.compact_history(self.history, llm.client, llm.MODEL, MEMORY)
+                if len(self.history) < _before:   # G1：压缩对用户可见
+                    self._emit({"type": "memory_compacted", "removed": _before - len(self.history)})
                 if todos_mod.TODOS:
                     unfinished = [t for t in todos_mod.TODOS if t["status"] != "completed"]
                     if unfinished:

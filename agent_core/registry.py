@@ -20,6 +20,7 @@ import json
 from types import SimpleNamespace
 
 from . import todos as todos_mod
+from .memory import MEMORY
 from .mcp_client import MCP_TOOL_MAP, list_mcp_servers
 from .subagent import SUBAGENT_TYPE_OPTIONS, run_subagent
 from .team import BUS, TEAM, VALID_MSG_TYPES
@@ -275,6 +276,28 @@ register_tool(
         },
     },
     _broadcast,
+)
+
+register_tool(
+    "save_memory",
+    {
+        "type": "function",
+        "function": {
+            "name": "save_memory",
+            "description": (
+                "把值得长期记住的稳定事实写入记忆卷宗（用户偏好、背景、项目约定等）。"
+                "用户说\"记住…\"\"以后请…\"时调用；寒暄与一次性细节不要记。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "要记住的事实，一句简洁陈述句"}
+                },
+                "required": ["content"]
+            }
+        }
+    },
+    lambda inp, sender="lead", prefix="": MEMORY.append_memory(str(inp.get("content", ""))),
 )
 
 # ============== 演示工具（任务 4.1 完成标志的活体证明） ==============

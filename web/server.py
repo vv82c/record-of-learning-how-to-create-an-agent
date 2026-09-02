@@ -275,17 +275,24 @@ async def ws_endpoint(websocket: WebSocket):
                     out_queue.put_nowait({"type": "persona", "name": target})
                 else:
                     out_queue.put_nowait({"type": "error", "message": f"未知人格：{target}"})
-            elif kind == "send":
+            elif kind in ("send", "regen", "edit_send"):
                 if busy.is_set():
                     out_queue.put_nowait({"type": "error", "message": "上一条传旨仍在办理中，请稍候"})
                     continue
                 busy.set()
                 text = str(msg.get("text", ""))
-                out_queue.put_nowait({"type": "user_echo", "text": text})
+                if kind == "send":
+                    out_queue.put_nowait({"type": "user_echo", "text": text})
+                    round_fn = lambda t=text: runner.send(t)          # noqa: E731
+                elif kind == "edit_send":                              # G3：改旨（替换上一问重跑）
+                    out_queue.put_nowait({"type": "user_echo", "text": text})
+                    round_fn = lambda t=text: runner.edit_last(t)      # noqa: E731
+                else:                                                  # G3：另拟（原问重跑）
+                    round_fn = runner.regenerate
 
                 def work() -> None:
                     try:
-                        runner.send(text)
+                        round_fn()
                     except Exception as exc:  # 内核异常不能拖垮连接
                         on_event({"type": "error", "message": f"[内核异常] {type(exc).__name__}: {exc}"})
                     finally:

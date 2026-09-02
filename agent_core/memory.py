@@ -47,6 +47,19 @@ class MemoryStore:
         with self.history_file.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
+    def append_memory(self, text: str) -> str:
+        """save_memory 工具（G1）：把一句稳定事实追加进 MEMORY.md。
+
+        追加后 RAG 索引靠内容哈希自动重建（memory_rag._load_index），无需手动失效。
+        """
+        self.ensure_files()
+        clean = text.strip()
+        if not clean:
+            return "Error: 记忆内容为空"
+        with self.memory_file.open("a", encoding="utf-8") as f:
+            f.write(f"- {clean}\n")
+        return f"已记入长期记忆：{clean}"
+
     def read_memory(self) -> str:
         self.ensure_files()
         return self.memory_file.read_text(encoding="utf-8")

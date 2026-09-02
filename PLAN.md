@@ -182,6 +182,18 @@
   - 要求：client/MODEL/CONTEXT_WINDOW 变为可重建模块属性；全部调用方（runner/subagent/team/memory_rag/main）从 `from .llm import client` 改为 `llm.client` 属性引用（引用焊死则换配置不可见）；context_window 随档案走（E5 账房直接受益）
   - 【完成标志】切换档案后 MODEL/窗口随档案变化且真实对话成功；重复 apply_profile 幂等；全部模块 import 与终端回归通过
 
+## 阶段七：人性化交互（P6 — 2026-09-03 立项，对标市面 agent 体验）
+
+- [x] **7.1 save_memory 工具与压缩可见化**（✅ 2026-09-03，实测：模型对"请记住…"主动调用 save_memory，内容入 MEMORY.md 且 RAG 索引哈希自动重建；压缩触发时发 memory_compacted 事件，UI 通知"已沉淀入卷宗"。system prompt 增补第 10 条行事规矩）
+  - 【完成标志】端到端："请记住：朕偏好简短回复"→ 工具卡 save_memory 出现、记忆文件含该条；registry 单条注册零分发改动（4.1 的活体证明第二例）
+- [x] **7.2 会话自动命名**（✅ 2026-09-03，实测：第一轮 done 后微型 LLM 调用起 ≤10 字标题（"天蓝圣旨答"），session_title 事件驱动偏殿名册刷新；resume 后不重复命名；终端 /resume 列表同步受益）
+  - 【完成标志】标题落盘 titles.json（list_sessions 只扫 *.jsonl 不误列）；无 title 回退首条消息预览；命名失败静默不影响对话
+  - 【坑】推理模型把小 max_tokens 全花在思维链上导致正文为空——命名调用上限放宽到 1024
+- [x] **7.3 另拟 / 改旨**（✅ 2026-09-03，实测：regenerate 回滚到最后一条真实用户消息（跳过 Stop 门禁提醒）重跑，history 与会话文件 truncate 续写后全程一致；edit_last 换问重跑；UI 侧显示与历史对齐（回滚后收走屏上旧问旧答））
+  - 【完成标志】另拟后历史条数不变、回复不同；改旨后最后一条用户消息被替换；会话文件条数 == history 条数；_last_real_user_index 跳过门禁提醒
+- [x] **7.4 思维链流式转发**（✅ 2026-09-03，实测：deepseek-v4-flash 推理 174 条 reasoning 事件全程捕获，不写入 history、不计入回复；前端"圣思"折叠段答完自动收起）
+  - 【完成标志】reasoning_start/reasoning 事件先于 reply_start；_consume_stream 读 delta.reasoning_content；reasoning 不污染 history 与 token 统计口径
+
 ## 待评估想法（Backlog）
 
 > 只记录，不排期。升级为正式任务前不占用主线资源。
@@ -228,4 +240,5 @@
 | 2026-08-24 | 新增阶段五（5.1~5.3）并更新基线；同日 oxalpha 实战诊断：主因未挂代理致目标站超时，放大器为子代理无熔断、无日志、错误不引导换源 | 实战暴露的问题按纪律先入计划再修复 |
 | 2026-08-24 | 任务 5.1/5.2/5.3 完成并勾选，**阶段五完成，累计 19 项**：熔断实测 34s 收兵（对比烧满 15 回合）、子代理日志可归因、DNS/SSRF 文案分离与超时换源提示 | oxalpha 三大放大器全部拆除；测试断言自身也曾数错文件数（单测记录器与集成共用目录），按 purpose 字段修正校验 |
 | 2026-08-24 | 新增 [UIPLAN.md](UIPLAN.md)：Emperor Agent 前端计划书（阶段 A-D 共 12 项，FastAPI + 零构建前端 + pywebview 壳，只绑 127.0.0.1） | 软件化方向立项；UI 子系统单独成计划，本文件继续作为 agent_core 的路线基准 |
+| 2026-09-03 | 新增阶段七并完成（7.1~7.4 人性化交互，对标市面 agent）：save_memory 工具 + 压缩事件；会话自动命名（titles.json + session_title 事件）；另拟/改旨（send 抽出 _finish_round，regenerate/edit_last + sessions.truncate + 跳过门禁提醒）；思维链流式转发（reasoning_content → 事件，不入 history）。前端配合见 UIPLAN 阶段 G。内核断言 7 项 + 浏览器全流程 + 终端回归全过 | 用户确认按"记忆存在感 > 自动命名 > 另拟改旨 > 圣思"优先级落地；踩坑：推理模型小 max_tokens 全花在思维链上致命名正文为空——上限放宽；list_sessions 曾因缩进错误只返回一个会话，浏览器验收抓到 |
 | 2026-09-03 | 新增阶段六并完成（6.1 配置层 + 6.2 client 运行时重建，Backlog 首条转正）：model_profiles.py 多档案配置（.env 自动种子迁移、空 key 沿用旧值、model_profiles.json 先行入 .gitignore）；llm.py 改 apply_profile 可重建，runner/subagent/team/memory_rag/main 全部改 llm. 属性引用；context_window 随档案走。内核断言（切换/幂等/未配置引导/空 key 沿用）+ 终端回归全过 | 用户需求"模型配置放软件里"：配置界面属 UIPLAN 阶段F，内核侧的配置层与可重建 client 是其前置，一并落地 |
