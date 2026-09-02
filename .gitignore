@@ -28,3 +28,6 @@ build/
 dist/
 build.log
 *.spec.bak
+
+# ===== F1 模型配置中心（含 API Key，与 .env 同级敏感，绝不入库） =====
+model_profiles.json

@@ -21,27 +21,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 def _ensure_env_or_guide() -> None:
-    """首启引导（D2）：打包后 exe 旁边没有 .env 时，给出配置指引而非崩溃。
-
-    PyInstaller 场景下 exe 在 dist/ 里运行，PROJECT_ROOT 指向解包目录，
-    所以检查"exe 所在目录"的 .env；开发态两者相同。
-    """
-    import tkinter.messagebox as mb
-    exe_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else PROJECT_ROOT
-    env_path = exe_dir / ".env"
-    if os.environ.get("LLM_API_KEY") or env_path.exists():
-        return
-    mb.showerror(
-        "Emperor Agent · 首启配置",
-        "未找到 .env 配置文件。\n\n"
-        "请在程序所在目录创建 .env，写入三行：\n"
-        "LLM_BASE_URL=你的接口地址\n"
-        "LLM_API_KEY=你的密钥\n"
-        "LLM_MODEL=模型名称\n\n"
-        f"配置文件位置：{env_path}\n"
-        "保存后重新启动本程序即可。",
-    )
-    sys.exit(1)
+    """（F4 已废弃原逻辑）首启引导改由界面内的「模型阁」承担：
+    无任何模型配置时，前端自动展开添加表单，用户填完即用，无需理解 .env。"""
+    return None
 
 import uvicorn
 import webview

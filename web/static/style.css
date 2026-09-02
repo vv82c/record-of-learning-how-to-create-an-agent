@@ -284,6 +284,27 @@ body {
 .btn-approve:hover { box-shadow: 0 0 12px rgba(123,166,151,.5); }
 .btn-deny:hover { box-shadow: 0 0 12px rgba(185,58,50,.5); }
 
+/* F3：模型阁 */
+.models { list-style: none; display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.models li { font-size: .88rem; color: var(--minghuang); opacity: .85;
+             display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.models li.active { color: var(--liujin); opacity: 1;
+                    text-shadow: 0 0 6px rgba(212,175,55,.5); }
+.btn-mini-inline {
+  background: transparent; color: var(--liujin-dim);
+  border: 1px dashed var(--liujin-dim); border-radius: 3px;
+  font-size: .7rem; padding: 1px 6px; cursor: pointer; margin-left: auto;
+}
+.models li .btn-mini-inline + .btn-mini-inline { margin-left: 0; }
+.btn-mini-inline:hover { color: var(--liujin); border-color: var(--liujin); }
+.model-form { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.model-form input {
+  background: rgba(0,0,0,.4); color: var(--minghuang);
+  border: 1px solid var(--liujin-dim); border-radius: 4px;
+  padding: 6px 10px; font-size: .82rem; outline: none;
+}
+.model-form input:focus { border-color: var(--liujin); }
+
 /* ═══════════ E5：内库账房——对话用度计数板 ═══════════ */
 .ledger {
   display: flex; align-items: center; gap: 18px; flex-wrap: wrap;

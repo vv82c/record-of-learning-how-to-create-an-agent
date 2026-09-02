@@ -583,6 +583,107 @@
     renderNotice("（已请旨叫停，待总管收束……）");
   });
 
+  /* ---- F3：模型阁——多模型配置管理（REST：配置是进程级全局） ---- */
+  let editingModel = null;          // 正在修改的档案名；null = 新增
+  let deleteArm = null;             // 两步确认删除：已点一次删除的档案名
+
+  async function refreshModels() {
+    const data = await fetchJSON("/api/models");
+    if (!data || !Array.isArray(data.profiles)) return;
+    const ul = $("model-list");
+    ul.replaceChildren();
+    if (data.profiles.length === 0) {
+      const li = document.createElement("li");
+      li.className = "hint";
+      li.textContent = "（尚无模型——展开下方表单，填接口地址 / Key / 模型名）";
+      ul.appendChild(li);
+      $("model-form-box").open = true;            // F4：首启无配置自动展开表单
+      return;
+    }
+    for (const p of data.profiles) {
+      const li = document.createElement("li");
+      if (p.name === data.active) li.className = "active";
+      const name = document.createElement("span");
+      name.className = "hall-name";
+      name.textContent = p.name + (p.key_hint ? ` · ${p.key_hint}` : "");
+      const hint = document.createElement("span");
+      hint.className = "hint";
+      hint.textContent = p.name === data.active ? "当前" : "切换";
+      const btnEdit = document.createElement("button");
+      btnEdit.type = "button"; btnEdit.className = "btn-mini-inline"; btnEdit.textContent = "改";
+      btnEdit.addEventListener("click", (e) => { e.stopPropagation(); fillModelForm(p); });
+      const btnDel = document.createElement("button");
+      btnDel.type = "button"; btnDel.className = "btn-mini-inline"; btnDel.textContent = "删";
+      btnDel.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (deleteArm !== p.name) {               // 两步确认（pywebview 无原生 confirm）
+          deleteArm = p.name;
+          btnDel.textContent = "确认删?";
+          setTimeout(() => { btnDel.textContent = "删"; deleteArm = null; }, 3000);
+          return;
+        }
+        deleteArm = null;
+        const r = await fetch("/api/models/delete", { method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: p.name }) });
+        renderNotice(r.ok ? `（模型「${p.name}」已撤下——）` : "（撤下失败……）", r.ok ? "" : "warn");
+        if (editingModel === p.name) cancelModelForm();
+        refreshModels();
+      });
+      li.addEventListener("click", async () => {
+        if (p.name === data.active) return;
+        const r = await fetch("/api/models/switch", { method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: p.name }) });
+        if (r.ok) renderNotice(`（已换用模型「${p.name}」——下轮生效）`);
+        refreshModels();
+      });
+      li.append(name, btnEdit, btnDel, hint);
+      ul.appendChild(li);
+    }
+  }
+
+  function fillModelForm(p) {
+    editingModel = p.name;
+    $("model-name").value = p.name;
+    $("model-url").value = p.base_url;
+    $("model-id").value = p.model;
+    $("model-key").value = "";                    // 空 = 沿用原 key
+    $("model-window").value = p.context_window || "";
+    $("model-form-title").textContent = `修改「${p.name}」`;
+    $("btn-model-cancel").hidden = false;
+    $("model-form-box").open = true;
+  }
+
+  function cancelModelForm() {
+    editingModel = null;
+    ["model-name", "model-url", "model-id", "model-key", "model-window"].forEach(id => { $(id).value = ""; });
+    $("model-form-title").textContent = "＋ 添加 / 修改模型";
+    $("btn-model-cancel").hidden = true;
+  }
+
+  $("btn-model-cancel").addEventListener("click", cancelModelForm);
+  $("btn-model-save").addEventListener("click", async () => {
+    const body = {
+      name: $("model-name").value.trim(),
+      base_url: $("model-url").value.trim(),
+      model: $("model-id").value.trim(),
+      api_key: $("model-key").value.trim(),
+      context_window: parseInt($("model-window").value, 10) || null,
+    };
+    if (!body.name || !body.base_url || !body.model) {
+      renderNotice("（名称、接口地址、模型名都不能空——）", "warn");
+      return;
+    }
+    const r = await fetch("/api/models", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) { renderNotice("（保存失败——请检查各项填写）", "warn"); return; }
+    renderNotice(editingModel ? `（模型「${body.name}」已更新并启用——）`
+                              : `（模型「${body.name}」已入阁并启用——）`);
+    cancelModelForm();
+    refreshModels();
+  });
+
   /* ---- C2：面板数据（REST 拉取） ---- */
   let currentSessionId = null;
   let currentPersona = null;
@@ -750,7 +851,7 @@
 
   // 面板轮询：会话列表高频些（动作后要刷新），其余低频
   setInterval(refreshSessions, 8000);
-  setInterval(() => { refreshTeam(); refreshMemory(); refreshSubagentLogs(); }, 30000);
+  setInterval(() => { refreshTeam(); refreshMemory(); refreshSubagentLogs(); refreshModels(); }, 30000);
 
   /* ---- 连接与断线（B2：提示 + 每 3 秒自动重连；B3：断线提示去重） ---- */
   let offlineNotified = false;
@@ -762,7 +863,7 @@
       setLamp("on", "● 当值");
       refreshSend();
       refreshSessions(); refreshPersonas(); refreshTeam(); refreshMemory();
-      refreshSubagentLogs(); refreshMcp();
+      refreshSubagentLogs(); refreshMcp(); refreshModels();
     };
     ws.onmessage = (m) => {
       try { onEvent(JSON.parse(m.data)); } catch { /* 坏消息直接丢弃 */ }

@@ -21,10 +21,10 @@ from types import SimpleNamespace
 
 from openai import APIConnectionError, InternalServerError, RateLimitError
 
-from . import memory_compact, todos as todos_mod
-from .config import CONTEXT_WINDOW, PERSONA_DIR
+from . import llm, memory_compact, todos as todos_mod
+from .config import PERSONA_DIR
 from .hooks import HOOKS, HookDecision, confirm_hook_decision
-from .llm import MODEL, assistant_to_dict, client, to_tool_call
+from .llm import assistant_to_dict, to_tool_call   # F2：client/MODEL 一律走 llm. 属性引用（可热重建）
 from .mcp_client import build_tool_schemas
 from .memory import MEMORY
 from .memory_rag import MEMORY_RAG
@@ -131,10 +131,15 @@ def call_llm(messages: list[dict], tools: list[dict], on_event=None, stop_event=
     """带异常兜底的流式 LLM 调用：可重试错误指数退避，其余失败返回 None（不抛异常）。"""
     delay = 1.0
     last_error: Exception | None = None
+    if llm.client is None:
+        _emit_to(on_event, {"type": "error", "message":
+                            "\n[未配置模型] 请在界面「模型阁」添加模型配置（接口地址 / API Key / 模型名），"
+                            "或在 .env 配置 LLM_* 后重启。\n"})
+        return None
     for attempt in range(1, MAX_LLM_RETRIES + 1):
         try:
-            stream = client.chat.completions.create(
-                model=MODEL,
+            stream = llm.client.chat.completions.create(
+                model=llm.MODEL,
                 max_tokens=20000,
                 messages=messages,
                 tools=tools,
@@ -292,7 +297,7 @@ class SessionRunner:
 
     def compact(self) -> tuple[int, int]:
         before = len(self.history)
-        self.history = memory_compact.compact_history(self.history, client, MODEL, MEMORY, force=True)
+        self.history = memory_compact.compact_history(self.history, llm.client, llm.MODEL, MEMORY, force=True)
         return before, len(self.history)
 
     # ---- 对外：对话入口 ----
@@ -310,7 +315,7 @@ class SessionRunner:
             "tokens": self._turn_tokens,
             # E5 内库账房：本次连接的累计用度 + 模型窗口（前端算占用率）
             "usage": dict(self._usage),
-            "context_window": CONTEXT_WINDOW,
+            "context_window": llm.CONTEXT_WINDOW,
         })
         return reply
 
@@ -398,7 +403,7 @@ class SessionRunner:
             )
             turn_ctx = {
                 "history": self.history,
-                "model": MODEL,
+                "model": llm.MODEL,
                 "turn": len(self.history),
                 "system_prompt": build_system_prompt(query=latest_user, persona=self.persona),
             }
@@ -457,7 +462,7 @@ class SessionRunner:
                     continue
                 reply = stop_ctx.get("reply", reply)
                 # ---- 记忆压缩（history 超阈值时沉淀）----
-                self.history = memory_compact.compact_history(self.history, client, MODEL, MEMORY)
+                self.history = memory_compact.compact_history(self.history, llm.client, llm.MODEL, MEMORY)
                 if todos_mod.TODOS:
                     unfinished = [t for t in todos_mod.TODOS if t["status"] != "completed"]
                     if unfinished:

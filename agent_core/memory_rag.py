@@ -22,7 +22,7 @@ import os
 import re
 from collections import Counter
 
-from .llm import client as _llm_client
+from . import llm as _llm
 from .memory import MEMORY
 
 TOP_K = int(os.environ.get("AGENT_RAG_TOP_K", "8"))
@@ -60,12 +60,12 @@ class LexicalVectorizer:
 class APIVectorizer:
     """OpenAI 兼容 embeddings 接口。首次失败由 MemoryRetriever 捕获并降级。"""
 
-    def __init__(self, client, model: str):
-        self._client = client
+    def __init__(self, llm_mod, model: str):
+        self._llm = llm_mod   # F2：存模块引用，vectorize 时取当前 client（换模型自动跟随）
         self.model = model
 
     def vectorize(self, text: str) -> list[float]:
-        resp = self._client.embeddings.create(model=self.model, input=[text])
+        resp = self._llm.client.embeddings.create(model=self.model, input=[text])
         return [float(x) for x in resp.data[0].embedding]
 
     @staticmethod
@@ -90,7 +90,7 @@ class MemoryRetriever:
 
     def _make_vectorizer(self):
         model = os.environ.get("LLM_EMBEDDING_MODEL", "")
-        if model and self._client is not None:
+        if model:
             return APIVectorizer(self._client, model)
         return LexicalVectorizer()
 
@@ -157,4 +157,4 @@ class MemoryRetriever:
         return head + "\n".join(f"- {h}" for h in hits)
 
 
-MEMORY_RAG = MemoryRetriever(MEMORY, client=_llm_client)
+MEMORY_RAG = MemoryRetriever(MEMORY, client=_llm)   # 传模块引用，换模型后 embeddings 走新 client

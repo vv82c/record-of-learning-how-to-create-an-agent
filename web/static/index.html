@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Emperor Agent · 金銮殿</title>
-<link rel="stylesheet" href="style.css?v=e5">
+<link rel="stylesheet" href="style.css?v=f1">
 </head>
 <body>
 
@@ -62,6 +62,26 @@
       <div class="personas" id="persona-list">
         <span class="hint">（衣装装载中……）</span>
       </div>
+    </section>
+
+    <section class="panel">
+      <h2>◈ 模型阁</h2>
+      <!-- F3：多模型配置（/api/models），点选切换、增改删；首启无配置时自动展开表单 -->
+      <ul class="models" id="model-list">
+        <li class="hint">（模型清单装载中……）</li>
+      </ul>
+      <details class="model-form-box" id="model-form-box">
+        <summary class="hint" id="model-form-title">＋ 添加 / 修改模型</summary>
+        <div class="model-form">
+          <input id="model-name" placeholder="名称（如 deepseek）" autocomplete="off">
+          <input id="model-url" placeholder="接口地址（https://api.deepseek.com）" autocomplete="off">
+          <input id="model-id" placeholder="模型名（deepseek-chat）" autocomplete="off">
+          <input id="model-key" type="password" placeholder="API Key（改档案时留空沿用原值）" autocomplete="new-password">
+          <input id="model-window" placeholder="上下文窗口（可选，如 131072）" autocomplete="off">
+          <button class="btn btn-mini" id="btn-model-save" type="button">保存并启用</button>
+          <button class="btn btn-mini" id="btn-model-cancel" type="button" hidden>取消修改</button>
+        </div>
+      </details>
     </section>
 
     <section class="panel">
@@ -144,6 +164,6 @@
 </footer>
 
 <!-- 资源带版本号：改版必换 v 参数，浏览器缓存不再咬住旧文件（B3 踩坑两次后的根治） -->
-<script src="app.js?v=e5" defer></script>
+<script src="app.js?v=f1" defer></script>
 </body>
 </html>

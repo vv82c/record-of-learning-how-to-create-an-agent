@@ -13,7 +13,6 @@ from agent_core import todos as todos_mod
 from agent_core.console import ensure_utf8_console
 from agent_core.config import MCP_CONFIG_PATH, PERSONA_DIR
 from agent_core.hooks import confirm_hook_decision
-from agent_core.llm import MODEL  # noqa: F401 （终端横幅历史沿用）
 from agent_core.mcp_client import connect_all, list_mcp_servers
 from agent_core.memory import MEMORY
 from agent_core.runner import SessionRunner

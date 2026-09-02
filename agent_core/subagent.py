@@ -8,7 +8,8 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import SUBAGENT_LOG_DIR
-from .llm import MODEL, assistant_to_dict, client, to_tool_call
+from . import llm
+from .llm import assistant_to_dict, to_tool_call
 from .tools import TOOL_SCHEMAS, execute_basic_tool
 
 # 任务 5.1：失败预算（熔断）。oxalpha 事件里子代理在网络不可达时傻傻烧满全部回合，
@@ -181,8 +182,8 @@ def run_subagent(task: str, agent_type: str = "neiguan_yingzao",
     fail_count = 0
 
     for turn in range(turns):
-        msg = client.chat.completions.create(
-            model=MODEL,
+        msg = llm.client.chat.completions.create(
+            model=llm.MODEL,
             max_tokens=2000,
             messages=[{"role": "system", "content": spec["system_prompt"]}] + messages,
             tools=tools,

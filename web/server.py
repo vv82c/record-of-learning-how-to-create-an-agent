@@ -29,10 +29,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
-from agent_core import todos as todos_mod
+from agent_core import llm, model_profiles, todos as todos_mod
 from agent_core.config import MCP_CONFIG_PATH, PERSONA_DIR, SUBAGENT_LOG_DIR
 from agent_core.console import ensure_utf8_console
 from agent_core.mcp_client import connect_all, list_mcp_servers
@@ -87,6 +88,62 @@ async def api_team():
 async def api_mcp():
     # list_mcp_servers 的文本格式（"## server\n- `tool`..."）正好适合面板展示
     return {"mcp": list_mcp_servers()}
+
+
+# ═══════════ F3：模型阁端点（模型配置是进程级全局，走 REST 而非 ws） ═══════════
+class ProfileIn(BaseModel):
+    name: str
+    base_url: str
+    model: str
+    api_key: str = ""
+    context_window: int | None = None
+
+
+def _mask_profile(p: dict) -> dict:
+    """key 永不出服务端：只回传末四位提示。"""
+    key = p.get("api_key") or ""
+    return {"name": p["name"], "base_url": p["base_url"], "model": p["model"],
+            "context_window": p.get("context_window"),
+            "key_hint": ("••••" + key[-4:]) if len(key) >= 4 else ("已设置" if key else "")}
+
+
+@app.get("/api/models")
+async def api_models():
+    data = model_profiles.load()
+    return {"active": data["active"],
+            "profiles": [_mask_profile(p) for p in data["profiles"]]}
+
+
+@app.post("/api/models")
+async def api_models_upsert(p: ProfileIn):
+    name = p.name.strip()
+    if not name or not p.base_url.strip() or not p.model.strip():
+        raise HTTPException(400, "名称、接口地址、模型名都不能为空")
+    profile = {"name": name, "base_url": p.base_url.strip(), "model": p.model.strip(),
+               "api_key": p.api_key.strip(), "context_window": p.context_window}
+    data = model_profiles.upsert(profile)
+    if data["active"] == name:
+        llm.apply_profile(profile)   # 新增/修改的就是活跃档案 → 立即生效
+    return await api_models()
+
+
+@app.post("/api/models/switch")
+async def api_models_switch(payload: dict):
+    prof = model_profiles.activate(str(payload.get("name", "")))
+    if prof is None:
+        raise HTTPException(404, "未知模型配置")
+    llm.apply_profile(prof)
+    return await api_models()
+
+
+@app.post("/api/models/delete")
+async def api_models_delete(payload: dict):
+    data = model_profiles.delete(str(payload.get("name", "")))
+    if data["active"]:
+        llm.apply_profile(next(p for p in data["profiles"] if p["name"] == data["active"]))
+    else:
+        llm.apply_profile(None)   # 全删光：回到未配置态，call_llm 走引导文案
+    return await api_models()
 
 
 @app.get("/api/subagent_logs")

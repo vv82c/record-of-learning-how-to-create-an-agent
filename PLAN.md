@@ -173,12 +173,20 @@
 
 ---
 
+## 阶段六：模型配置中心（P5 — 2026-09-03 立项，Backlog 首条转正）
+
+- [x] **6.1 配置层 model_profiles.py**（✅ 2026-09-03，实测：.env 自动种子为首个档案；upsert 空 api_key 沿用旧值；activate/delete 语义正确；`model_profiles.json` 先行入 .gitignore——含 Key 与 .env 同级敏感）
+  - 要求：多模型档案（name/base_url/api_key/model/context_window）+ 活跃档案，存项目根 JSON；.env 齐备时自动种子迁移，此后 .env 退化为兜底
+  - 【完成标志】load/upsert/activate/delete 单元断言全过；配置文件被 gitignore 挡住（check-ignore 验证）
+- [x] **6.2 llm client 运行时重建**（✅ 2026-09-03，Backlog 首条转正落地。实测：apply_profile 重建 client 后热切换跑真实对话成功；apply_profile(None) 后 call_llm 发"未配置模型"引导错误不崩溃；终端 main.py 回归正常）
+  - 要求：client/MODEL/CONTEXT_WINDOW 变为可重建模块属性；全部调用方（runner/subagent/team/memory_rag/main）从 `from .llm import client` 改为 `llm.client` 属性引用（引用焊死则换配置不可见）；context_window 随档案走（E5 账房直接受益）
+  - 【完成标志】切换档案后 MODEL/窗口随档案变化且真实对话成功；重复 apply_profile 幂等；全部模块 import 与终端回归通过
+
 ## 待评估想法（Backlog）
 
 > 只记录，不排期。升级为正式任务前不占用主线资源。
 
-- `agent_core/llm.py` 的 `client` 是模块级单例，启动时读取 .env；如需"改 Key / 换模型免重启"，
-  须重构为运行时可重建，并把各模块的 `from .llm import client` 统一改为 `llm.client` 引用
+- ~~`agent_core/llm.py` 的 `client` 是模块级单例~~ **已转正为阶段六 6.2 完成落地**
 - `subagent.py` 的 `run_subagent` 内 LLM 调用无兜底（team.py 已有 try/except）：
   子代理内 API 抛错会击穿主循环，建议复用 1.4 的 `call_llm`
 - 子代理与队友的工具调用走 `execute_basic_tool`，**不经过** `execute_main_tool` 的 Hook 链——
@@ -220,3 +228,4 @@
 | 2026-08-24 | 新增阶段五（5.1~5.3）并更新基线；同日 oxalpha 实战诊断：主因未挂代理致目标站超时，放大器为子代理无熔断、无日志、错误不引导换源 | 实战暴露的问题按纪律先入计划再修复 |
 | 2026-08-24 | 任务 5.1/5.2/5.3 完成并勾选，**阶段五完成，累计 19 项**：熔断实测 34s 收兵（对比烧满 15 回合）、子代理日志可归因、DNS/SSRF 文案分离与超时换源提示 | oxalpha 三大放大器全部拆除；测试断言自身也曾数错文件数（单测记录器与集成共用目录），按 purpose 字段修正校验 |
 | 2026-08-24 | 新增 [UIPLAN.md](UIPLAN.md)：Emperor Agent 前端计划书（阶段 A-D 共 12 项，FastAPI + 零构建前端 + pywebview 壳，只绑 127.0.0.1） | 软件化方向立项；UI 子系统单独成计划，本文件继续作为 agent_core 的路线基准 |
+| 2026-09-03 | 新增阶段六并完成（6.1 配置层 + 6.2 client 运行时重建，Backlog 首条转正）：model_profiles.py 多档案配置（.env 自动种子迁移、空 key 沿用旧值、model_profiles.json 先行入 .gitignore）；llm.py 改 apply_profile 可重建，runner/subagent/team/memory_rag/main 全部改 llm. 属性引用；context_window 随档案走。内核断言（切换/幂等/未配置引导/空 key 沿用）+ 终端回归全过 | 用户需求"模型配置放软件里"：配置界面属 UIPLAN 阶段F，内核侧的配置层与可重建 client 是其前置，一并落地 |

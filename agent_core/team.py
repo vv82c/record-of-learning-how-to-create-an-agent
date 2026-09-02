@@ -8,7 +8,8 @@ from pathlib import Path
 
 from . import memory_compact
 from .config import INBOX_DIR, TEAM_DIR
-from .llm import MODEL, assistant_to_dict, client, to_tool_call
+from . import llm
+from .llm import assistant_to_dict, to_tool_call
 from .memory import MEMORY
 
 VALID_MSG_TYPES = {
@@ -207,8 +208,8 @@ class TeammateManager:
             self._set_status(name, "working")
             for turn in range(20):
                 try:
-                    msg = client.chat.completions.create(
-                        model=MODEL,
+                    msg = llm.client.chat.completions.create(
+                        model=llm.MODEL,
                         max_tokens=4000,
                         messages=[{"role": "system", "content": system_prompt}] + messages,
                         tools=tools,
@@ -249,7 +250,7 @@ class TeammateManager:
             # 注意 team.py 用 `from . import memory_compact` 按模块引用调用，
             # 便于测试时替换（monkey patch）观察调用。
             messages = memory_compact.compact_history(
-                messages, client, MODEL, MEMORY,
+                messages, llm.client, llm.MODEL, MEMORY,
                 update_memory_files=False,
                 episode_prefix=f"[队友 {name}] ",
             )
