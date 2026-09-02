@@ -27,10 +27,14 @@ class HookDecision:
     - block：阻止并给出原因（等同于 Claude Code 的继续处理指令）
     """
 
-    def __init__(self, action: str, reason: str = "", updated_input: dict[str, Any] | None = None):
+    def __init__(self, action: str, reason: str = "", updated_input: dict[str, Any] | None = None,
+                 level: str = ""):
         self.action = action            # "allow" | "deny" | "ask" | "block"
         self.reason = reason            # 人类可读原因
         self.updated_input = updated_input  # 可选：改写工具参数（对应 Claude Code 的 updatedInput）
+        # E4.2：ask 的危险分级（仅 ask 使用，deny/allow 语义不受影响）
+        # "confirm"=有合理场景的常规确认；"high"=高危操作（外发/发布/部署类）
+        self.level = level
 
     @property
     def is_blocking(self) -> bool:
@@ -353,6 +357,7 @@ class ToolPolicyHook(Hook):
                 return HookDecision(
                     action="ask",
                     reason=f"命令涉及敏感文件/路径（匹配模式：{pattern}），需要确认。命令：{command[:120]}",
+                    level="confirm",
                 )
 
             high_sensitivity = self._match_pattern(command, self.HIGH_SENSITIVITY)
@@ -361,6 +366,7 @@ class ToolPolicyHook(Hook):
                 return HookDecision(
                     action="ask",
                     reason=f"需要确认：{description}。命令：{command[:120]}",
+                    level="high",
                 )
             return
 

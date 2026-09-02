@@ -96,7 +96,7 @@
 
 ---
 
-## 三、任务清单（阶段 A→D，共 12 项）
+## 三、任务清单（阶段 A→D 共 12 项已完成；阶段 E 体验打磨 4 项进行中）
 
 ### 阶段 A：地基——后端服务化（动 UI 之前先把骨架立起来）
 
@@ -147,6 +147,38 @@
 - [x] **D2 打包 exe**（✅ 2026-08-24，实测：38.2 MB 单文件，配 .env 后双击 **4 秒**起窗进对话（ws 流式验证）；无 .env 首启弹引导不崩溃；关窗端口/进程/MCP 子进程零残留。产物：`pyinstaller emperor.spec` → dist/EmperorAgent.exe；图标 assets/emperor.ico（PIL 绘制多尺寸玉玺方印）；build/dist 已入 .gitignore）
 - [x] **D3 文档与门面收尾**（✅ 2026-08-24，截图入库 docs/images/hall.png 与 decree.png；README 增补软件形态（双入口/打包/安全红线）；SUMMARY 收录 UI 阶段任务表、知识点第 7 节、自测题 34-38、踩坑 #10-14、数字更新。**至此 UIPLAN 12 项全部完成，Emperor Agent 全旅程收官**）
 
+### 阶段 E：体验打磨（2026-09-02 立项，源自外部 UI 评审）
+
+> 评审意见经代码逐条核实后收编，按"侵入深度"重排为四批：先纯前端，再内核事件，
+> Markdown 渲染因触碰 B2 的 textContent-only 安全约定单独立项评审，圣旨弹窗（安全交互）殿后。
+> 纪律不变：只做下一个未勾选项；E2 起触碰事件协议，每批做完必须跑终端版回归（红线 #2）。
+
+- [x] **E1 纯前端四件套**（✅ 2026-09-03，实测：浏览器逐条过完成标志——①四行输入撑高 114px、清空回落 44px（同 send() 清空路径）；②↑ 依次召回→最旧停住、↓ 逐级返回草稿、多行第二行按 ↑ 仅移光标（preventDefault=false）不回溯、刷新后 localStorage 历史可召回；③全文件 `case "hook_decision"` 仅存一处，圣旨三分支回归不变；④示例卡新会话/开新殿显示、点击真实走通 sendText→current_time 工具→奏折回复全链路、开谈即隐、恢复 4 条旧话的偏殿不显示。视觉核对：胶囊卡虚线鎏金与主题一致，多行输入框撑高无重叠。测试服务日志零内核/Hook 错误。资源版本号 v=c3→v=e1）
+  - E1.1 输入框自动撑高：textarea 随内容增长（现 resize:none 锁死单行），至 max-height 140px 后内部滚动；发送后回落单行
+    - 【完成标志】多行长指令逐行撑高、超 140px 出滚动条；发送/清空回落；Shift+Enter 换行不回归
+  - E1.2 传旨历史回溯：↑/↓ 在本连接输入历史间循环（localStorage 持久，重启不丢）
+    - 【完成标志】发过 3 条后 ↑ 依次回溯、↓ 返回；光标不在首行时 ↑ 只移光标不回溯（不干扰多行编辑）
+  - E1.3 死代码清理：app.js 中重复的 `case "hook_decision"`（第二个分支不可达，C1 改造遗留）删除
+    - 【完成标志】全文件仅存一处；圣旨准奏/驳回/超时三分支回归不变
+  - E1.4 空状态引导：全新会话（无任何对话）时金銮殿放 2~3 条示例圣旨卡，点击即发送
+    - 【完成标志】新会话可见示例卡、点击走既有 send 流程后消失；有对话的会话（含恢复的旧殿）不显示
+
+- [x] **E2 三个小内核事件**（✅ 2026-09-03，三轨验证：①脚本驱动 SessionRunner 断言——事件序列 `session→turn_start→turn_end→tool_start→tool_end→turn_start→reply_start→token…→reply_end→turn_end→done`，tool_end 带 `ok/duration_ms`、done 带 `duration_ms/tokens`（6289 tokens 为供应商真实 usage，探测证实 DeepSeek 流式最终块原生携带、无需 stream_options）；②终端回归——管道驱动 main.py 工具轮问答，terminal_printer 对新事件零破坏，REPL 继续、q 干净退出；③浏览器全程采样——朱批后拟旨占位持续至首 token、工具卡 summary 呈现 `内务府 · run_command · echo hello_e2_test ✓ · 0.0s`、落款 `老奴叩禀 · 2.4s · 6412 tokens`、杀服务后 onclear 占位清零宫灯转离线。测试日志零内核/Hook 错误）
+  - E2.1 `turn_start` 事件：`_run_loop` 调 call_llm 前发出，前端在奏折位置显示"老奴正在拟旨……"占位动画，首个 token 到达后移除（消灭 reply_start 前的事件真空）
+  - E2.2 `tool_end` 结构化摘要：dispatch_tool 附带 duration_ms 与成败标记（字段已在 tool_ctx 中现成），前端工具卡 summary 行直接呈现"命令 ✓ 0.8s"式精华，完整输出仍在折叠区
+  - E2.3 落款信息：done 事件附 usage（tokens）与本轮耗时，奏折落款行呈现"老奴叩禀 · 1.2s · 842 tokens"
+    - 【完成标志】terminal_printer 对新事件零破坏（忽略或轻量打印）；UI 三处反馈可见；断线重连不残留"拟旨中"占位；流中断（stop/retry）路径占位动画正确清除
+- [x] **E3 Markdown 渲染立项**（✅ 2026-09-03，E3.1 结论已留痕变更记录后动工。验证：①内核——system prompt 含条款（断言），端到端人格前缀"奉天承运皇帝诏曰"不回归、current_time 照常调用、回复带 ##/**/```；②前端——真实对话渲染出 H4 标题/strong/列表项/pre>code/行内 code 五类，计算样式审计证明 CSS 生效（代码块墨底 rgba(0,0,0,.45)+Consolas、标题鎏金 KaiTi、加粗明黄）；③注入——通过 `window.__emperor_md` 验证钩子直接驱动真实渲染器：`<script>`/`<img onerror>`/`[点我](javascript:)` 三样本 **0 个危险元素**、字面文本全保留、正常五类照常渲染；静态 grep 全文件 innerHTML 仅存于注释。附带发现：模型人格自身会拒绝原样回显攻击串（第一道软防线），故注入测试必须走渲染器直调才能覆盖。版本号 v=e2→v=e3→v=e3b）
+  - E3.1 渲染方案评审：自写 DOM 构建式迷你渲染器（守住 textContent-only 纪律，零新依赖）vs 引 marked.js + DOMPurify（评估是否破"零构建/初学者可读"承诺）——结论写入本文件变更记录后再开始 E3.2 ✅
+  - E3.2 system prompt 增补"回复使用 Markdown 结构"条款（runner.py），验证工具调用行为与人格腔调不回归 ✅
+  - E3.3 前端渲染落地：标题/列表/代码块/加粗斜体/行内 code 五类够用；代码块等宽+底色；渲染器外的文本一律维持 textContent ✅
+    - 【完成标志】含代码块与列表的回复正确渲染；注入样本（`<script>`、`<img onerror>`、`[链接](javascript:)`）全部按纯文本呈现；终端版输出不受影响
+- [x] **E4 圣旨弹窗升级**（✅ 2026-09-03，全矩阵实测：①hook_ask 结构化——code 块完整展示 `run_command {"command": ...}`，136 字符长命令不截断（reason 仍为 120 字符截断，两路并存）；②两档视觉——confirm 档鎏金/青玉条不变，high 档（git push）边框/标题/进度条全转朱砂 rgb(185,58,50)，实测中抓到并修复选择器错位（class 加在 .veil 而样式写的 .decree.high，永远不匹配）；③快捷键——Enter 准奏（命令真实执行 ✓）、Esc 驳回（拦截通知上屏）全链路通过；④超时 fail-closed——服务端 5s 超时自动驳回，前端弹窗同步关闭（顺手修复 C1 遗留的同步缺陷：hook_decision deny 到达时弹窗开着却不关）；⑤终端回归——非交互 ask 默认拒绝、人格如实回禀、HookDecision 加 level 后零回归。版本号 v=e3b→v=e4→v=e4b）
+  - E4.1 hook_ask 事件结构化：附带 `{tool, input}` 完整字段，弹窗以等宽 code 块展示完整命令/路径（现行 reason 内命令被 ToolPolicyHook 截断至 120 字符，不满足"看清再批"）
+  - E4.2 危险分级视觉：HookDecision 增加可选严重度字段（deny/ask 语义不变），弹窗区分"需确认"与"高危"两档视觉
+  - E4.3 决策快捷键与倒计时可视化：Enter 准奏 / Esc 驳回；倒计时数字改可视进度条
+    - 【完成标志】长命令完整可见不截断；两档危险视觉可区分；快捷键全链路可用；超时自动驳回（fail-closed）与终端确认流程回归全过
+
 ---
 
 ## 四、学习路线（与任务绑定）
@@ -165,6 +197,10 @@
 | D1 | 桌面壳、进程生命周期管理 | 能列出关窗时必须回收的资源 |
 | D2 | 打包、依赖裁剪、首启配置引导 | 能解释 .env 为什么绝不打进 exe |
 | D3 | 文档与作品意识 | 截图能一眼讲清软件是什么 |
+| E1 | 输入框 autosize（scrollHeight 测高）、键盘导航与光标行判定、localStorage 持久化、空状态引导 | 能解释"清空回落"为何必须挂在 send 路径而非 CSS；能说出 ↑ 回溯为何要判光标是否在首行 |
+| E2 | 内核事件协议演进、流式 usage 捕获（usage 块 choices 为空须先于 choices 检查读取）、瞬态 UI 状态的清除出口枚举 | 能画出 turn_start→token→turn_end 的时序并指出 stop/retry/error/断线四个清除出口；能解释占位为何在 retry 时保留、error 时清除 |
+| E3 | DOM 构建式渲染器的安全构造、流式全量重渲（rAF 节流）vs partial-state 解析的取舍、"模型防线≠渲染器防线"的测试分层 | 能解释为什么从不拼 HTML 就不需要过滤层正确性论证；能说出为什么注入测试不能只靠让模型回显攻击串 |
+| E4 | 权限决策的上下文完备性（用户决策质量取决于所见信息）、CSS class 挂载点与选择器作用域对齐、fail-closed 的前后端观感同步 | 能说出"reason 截断"为什么不该靠加长截断解决而该走结构化字段；能指出弹窗超时关窗是哪个事件驱动的 |
 
 ---
 
@@ -185,6 +221,11 @@
 - 语音传旨（TTS/STT）
 - 国际化（英文 UI）
 - 用户画像/记忆的可编辑界面（现在只读）
+- 侧殿面板分层收纳：七个面板按使用频率分层（偏殿名册/差事灯笼常驻，其余收抽屉或 tab）（2026-09-02 评审）
+- 断线重连后提供"回到刚才的偏殿"一键 resume（currentSessionId 前端仍在手，无需改协议）（2026-09-02 评审）
+- busy 时允许继续打字暂存，idle 后一键发送（现输入框禁用只能干等）（2026-09-02 评审）
+- retry/门禁类 notice 驻留不再被流式内容刷走（2026-09-02 评审）
+- 字体阶层拉开：hint 再压暗一档，区分"可点"与"说明"；青玉成功态对比度增强（2026-09-02 评审）
 
 ---
 
@@ -210,3 +251,9 @@
 | 2026-08-25 | 发布后修复③：单派遣子代理分支 UnboundLocalError——runner.py 该分支复制自并发分支，循环变量 block 漏改为 block_id（多路并发与无派遣测试均踩不中，唯"恰好派一个小太监"触发）；一行修复 + 单派遣路径专项验证 + exe 重打包 | 用户问天气时模型恰好单派遣而踩中：分支覆盖盲区的典型样本；并发/单发/无发三路都该有测试 |
 | 2026-08-26 | 发布后修复④：工具卡中文变 �——run_shell_command 把子进程输出按 UTF-8 强读，中文 Windows 命令实际是 cp936/GBK 字节，导致成片 U+FFFD；改为先 UTF-8 再 Windows 原生编码（sys.stdout.encoding 而非 locale.getpreferredencoding，后者会被 LANG 污染）再 cp936/mbcs/gbk 兜底；7/7 单测矩阵通过、exe 重打包 | 用户实测驱动；教训：跨编码边界要逐道审计，不能假定'应该'是 UTF-8 |
 | 2026-08-26 | 改进④：.hooks_audit.jsonl 轮转（5MB/3 份）防写类与命令类工具长跑塞爆；会话文件轮转（10MB/3 份）防会话无界增长；ensure_utf8_console 上移到 agent_core 包级副作用杜绝新入口遗漏；mcp_client._drop_session 防御 _close 失败永远不阻断重建 | 4/4 单元验证通过、exe 重打包 |
+| 2026-09-02 | 立项阶段 E「体验打磨」（E1 纯前端四件套 / E2 三个小内核事件 / E3 Markdown 渲染立项 / E4 圣旨弹窗升级），源外部 UI 评审意见经代码逐条核实后按"侵入深度"重排收编；5 条未立项想法入 Backlog（面板分层、一键回殿、暂存发送、notice 驻留、字体阶层）。E1 优先动工，E2 起每批跑终端回归（红线 #2），E3.1 渲染方案评审结论留痕后才准动工 | 同事评审指出"信息效率/反馈密度/长期舒适度"短板属实：markdown 不可渲染、工具卡信息层级反置、首 token 前无反馈、输入框单行锁死、圣旨弹窗命令被截断 120 字符等，均经 style.css/runner.py/hooks.py 原文核实 |
+| 2026-09-03 | 任务 E1 完成并勾选：输入框自动撑高（scrollHeight 测高 + send 清空回落）、↑/↓ 传旨历史回溯（去重/上限 50/localStorage 持久/首行判定）、删 C1 遗留的重复 `case "hook_decision"` 死代码、空状态示例圣旨卡三枚（fresh/resume/开谈三态控制 + sendText 复用）。纯前端三文件（app.js/index.html/style.css），零内核改动；资源版本号 v=c3→v=e1 | 验收踩坑重温：Playwright 合成 press 在刷新后再度时灵时不灵（C3 已有记录），键盘回溯改用页面内真实 KeyboardEvent 派发验证；`locator(sel, {hasText})` 选项不生效需用 `.filter()`；fill("") 不派发 input 事件——三条均为自动化验证工具的坑，非产品代码问题 |
+| 2026-09-03 | 任务 E2 完成并勾选：runner 新增 turn_start/turn_end 事件（before_turn 短路不发，成败都发 turn_end）；_consume_stream 捕获流式最终块 usage 随返回对象带出；dispatch_tool 的 tool_end 附 ok/duration_ms；send 计时并累加 tokens 进 done 事件。前端：拟旨占位动画（六出口清除：token/turn_end/error/session/断线/done，retry 保留）、工具卡 summary 带输入摘要+成败+耗时、奏折落款补 · 耗时 · tokens。runner.py 事件面演进后终端回归通过（红线 #2）；版本号 v=e1→v=e2 | 关键探测：DeepSeek 流式最终块原生携带 usage（无需 stream_options，避免兼容性风险）；usage 块 choices 为空，原代码在 choices 检查处跳过——捕获必须前移。占位清除出口逐个枚举是本次防残留的设计方法；error 收场时 turnHasMemorial 守卫防止落款写到旧奏折 |
+| 2026-09-03 | **E3.1 渲染方案评审结论（E3 门禁）**：采用**自写 DOM 构建式迷你渲染器**，否决 marked.js + DOMPurify。理由：①渲染全程 createElement/createTextNode、从不拼 HTML，与 B2"textContent-only 防注入"约定同构，注入面由构造归零，无需过滤层正确性论证；②零依赖、约百行，"零构建/初学者可读"承诺不破；③计划范围五类（标题/列表/代码块/加粗斜体/行内 code）够覆盖本 Agent 的中文回复形态，**链接刻意不渲染**（五类之外的 URL 按纯文本显示，消灭 `javascript:` 注入面）；④表格/任务列表等如未来需要，再评估升级并留痕。流式渲染策略：token 增量累加进缓冲，requestAnimationFrame 节流全量重渲（回复量级 KB 级，重渲成本可忽略，换取解析器无 partial-state 复杂度） | E3.2/E3.3 准予动工 |
+| 2026-09-03 | 任务 E3 完成并勾选：**E3.2** system prompt 增补 Markdown 排版条款（行事规矩第 9 条，中性措辞，人格映射不受影响）；**E3.3** 前端五类渲染 + 宫廷化 CSS（标题鎏金楷体、代码块墨底 Consolas、行内 code 暗金），reply_end 冲刷未决 rAF 帧；注入验证新增 `window.__emperor_md` 测试钩子导出渲染器。终端端到端回归通过（人格前缀/工具调用/Markdown 输出三证）；版本号 v=e2→v=e3→v=e3b | 双防线发现：模型人格自身拒绝原样回显攻击串（软防线，不可依赖），故注入测试必须经测试钩子直调真实渲染器（硬防线确定性验证）——0 危险元素、字面全保留。验证工具坑再记两条：IAB 截屏管线在长对话页面上会卡死（换计算样式审计做视觉代理）；cua.click 物理点击时灵时不灵（DOM click 可靠） |
+| 2026-09-03 | 任务 E4 完成并勾选，**阶段 E 体验打磨全部收官**：**E4.1** hook_ask 结构化携带 `{tool, input, level}`（reason 的 120 字符截断保留原文案，完整参数走新字段进等宽 code 块）；**E4.2** HookDecision 加可选 `level`（"confirm"/"high"，向后兼容），ToolPolicyHook 敏感路径→confirm、外发发布类→high，弹窗高危档边框/标题/进度条转朱砂；**E4.3** Enter 准奏/Esc 驳回全局快捷键 + 倒计时可视进度条；顺手修复 C1 遗留缺陷——服务端超时驳回时前端弹窗不关闭（deny 到达且 veil 开着则 closeDecree）。全矩阵实测：136 字符长命令 code 块完整不截断、两档视觉区分（实测抓到选择器错位 bug 并修复）、快捷键准奏/驳回双路、5s 超时 fail-closed 弹窗同步关、终端非交互默认拒绝零回归；版本号 v=e3b→v=e4→v=e4b | 两处教学级发现：①"加长 reason 截断"是错解，决策上下文完备性要走结构化字段——截断文案给模型看，完整参数给人看；②CSS class 挂载点（.veil）与选择器作用域（.decree.high）错位是静默失效——计算样式审计抓到（class 查得到、样式没生效），纯 DOM 快照看不出 |

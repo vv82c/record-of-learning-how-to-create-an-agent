@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Emperor Agent · 金銮殿</title>
-<link rel="stylesheet" href="style.css?v=c3">
+<link rel="stylesheet" href="style.css?v=e4b">
 </head>
 <body>
 
@@ -93,6 +93,15 @@
   <div class="throne-wrap">
     <main class="throne" id="chat">
       <div class="notice">（金銮殿已备，老奴候旨——下方传旨即可开始）</div>
+      <!-- E1.4：空状态示例圣旨（全新会话显示，开谈即隐；恢复有内容的旧殿不显示） -->
+      <div class="starter" id="starter">
+        <div class="starter-title">—— 或先试试这几道小差事（点击即传旨）——</div>
+        <div class="starter-cards">
+          <button class="starter-card" type="button" data-text="现在几点了？">看时辰 · 现在几点了？</button>
+          <button class="starter-card" type="button" data-text="帮我清点一下当前目录有哪些文件，分类列出来。">盘库房 · 清点当前目录</button>
+          <button class="starter-card" type="button" data-text="用三五句话讲讲什么是 function calling。">随堂讲学 · 什么是 function calling？</button>
+        </div>
+      </div>
     </main>
     <!-- B3：回看暂停后出现的"回到最新" -->
     <button id="btn-back" class="btn-back" type="button" hidden>▼ 回到最新</button>
@@ -104,7 +113,11 @@
   <div class="decree">
     <h3>圣 旨 待 批</h3>
     <p class="decree-text" id="decree-text">皇上，此令需您朱批：</p>
+    <!-- E4.1：完整工具与参数（等宽 code 块，不受 reason 120 字符截断影响） -->
+    <pre class="decree-code" id="decree-code" hidden></pre>
     <p class="decree-count" id="decree-count" hidden></p>
+    <!-- E4.3：倒计时进度条（剩余时间一眼可见） -->
+    <div class="decree-timer" id="decree-timer" hidden><div class="decree-timer-bar" id="decree-bar"></div></div>
     <div class="decree-actions">
       <button class="btn btn-approve" type="button" id="btn-approve">准 奏</button>
       <button class="btn btn-deny" type="button" id="btn-deny">驳 回</button>
@@ -120,6 +133,6 @@
 </footer>
 
 <!-- 资源带版本号：改版必换 v 参数，浏览器缓存不再咬住旧文件（B3 踩坑两次后的根治） -->
-<script src="app.js?v=c3" defer></script>
+<script src="app.js?v=e4b" defer></script>
 </body>
 </html>

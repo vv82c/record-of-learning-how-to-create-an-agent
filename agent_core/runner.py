@@ -73,6 +73,8 @@ def build_system_prompt(query: str = "", persona: str = DEFAULT_PERSONA) -> str:
 8. 区分两种调度：
    - dispatch_subagent：临时派遣，办完即散，只回传总结。
    - spawn_teammate：固定班底，有名字、角色、状态和 inbox，可持续协作。
+9. 回复使用 Markdown 结构化排版，便于界面渲染与阅读：分节用 ## 标题，要点用列表，
+   命令与代码放入 ``` 围栏代码块（标注语言），关键结论加粗；一两句话的简短寒暄不必刻意排版。
 
 【子代理身份选择】
 优先选择权限最窄、职司最贴合的身份：
@@ -161,14 +163,20 @@ def _consume_stream(stream, on_event=None, stop_event=None):
 
     stop_event 置位时立刻断流，已收到的内容作为部分回复返回（B3 请旨叫停）。
     返回与整段响应同构的对象（choices[0].message + streamed 标记），上层零感知。
+    E2.3：供应商在流的最终块（choices 为空）携带 usage，原样捕获随对象带出。
     """
     content_parts: list[str] = []
     tool_acc: dict[int, dict] = {}
     header_sent = False
+    usage = None
     try:
         for chunk in stream:
             if stop_event is not None and stop_event.is_set():
                 break
+            # usage 块的 choices 为空，必须先于 choices 检查读取
+            chunk_usage = getattr(chunk, "usage", None)
+            if chunk_usage is not None:
+                usage = chunk_usage
             choices = getattr(chunk, "choices", None)
             if not choices:
                 continue
@@ -211,7 +219,7 @@ def _consume_stream(stream, on_event=None, stop_event=None):
             for _, slot in sorted(tool_acc.items())
         ] or None,
     )
-    return SimpleNamespace(choices=[SimpleNamespace(message=message)], streamed=True)
+    return SimpleNamespace(choices=[SimpleNamespace(message=message)], streamed=True, usage=usage)
 
 
 def _emit_to(on_event, event: dict) -> None:
@@ -271,11 +279,17 @@ class SessionRunner:
     # ---- 对外：对话入口 ----
     def send(self, user_text: str) -> str:
         self._stop.clear()
+        self._turn_tokens = None   # E2.3：本轮全部 LLM 调用的 tokens 总量（供应商提供时才有值）
+        started = time.perf_counter()
         user_message = {"role": "user", "content": user_text}
         self.history.append(user_message)
         self.remember(user_message)
         reply = self._run_loop()
-        self._emit({"type": "done", "reply": reply})
+        self._emit({
+            "type": "done", "reply": reply,
+            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+            "tokens": self._turn_tokens,
+        })
         return reply
 
     # ---- 内部 ----
@@ -303,7 +317,14 @@ class SessionRunner:
                 self._emit({"type": "hook_decision", "action": decision.action, "reason": decision.reason})
                 return decision.to_message()
             if decision.action == "ask":
-                self._emit({"type": "hook_ask", "reason": decision.reason})
+                # E4.1：结构化携带工具名与完整参数（reason 里的命令被 Hook 截断至 120 字符，
+                # 用户"看清再批"需要完整原文；input 取 tool_ctx——已含先前 allow hook 的改写）
+                self._emit({
+                    "type": "hook_ask", "reason": decision.reason,
+                    "tool": tool_ctx.get("name", name),
+                    "input": tool_ctx.get("input", block.input),
+                    "level": getattr(decision, "level", "") or "",
+                })
                 if not self._confirmer(decision):
                     denied = HookDecision(
                         action="deny", reason=f"用户未确认高敏感操作：{decision.reason}")
@@ -331,8 +352,14 @@ class SessionRunner:
 
         if name == "update_todos":
             self._emit({"type": "todos", "todos": todos_mod.TODOS})
-        self._emit({"type": "tool_end", "name": name, "output": str(output)[:300],
-                    "blocked": is_blocking_tool_result(str(output))})
+        output_text = str(output)
+        self._emit({
+            "type": "tool_end", "name": name, "output": output_text[:300],
+            "blocked": is_blocking_tool_result(output_text),
+            # E2.2：成败沿子代理同款约定（"Error" 开头计为失败，宁漏勿误判）；耗时供卡片摘要行
+            "ok": not is_blocking_tool_result(output_text) and not output_text.startswith("Error"),
+            "duration_ms": round(tool_ctx.get("duration_ms", 0), 1),
+        })
         return output
 
     def _run_loop(self) -> str:
@@ -362,17 +389,26 @@ class SessionRunner:
                 self._assistant_say(short)
                 return short
 
+            # E2.1：拟旨占位的起止事件——before_turn Hook 短路时不发（不会有流式回复）
+            self._emit({"type": "turn_start"})
             response = call_llm(
                 [{"role": "system", "content": turn_ctx["system_prompt"]}] + self.history,
                 build_tool_schemas(get_schemas()),
                 on_event=self._emit,
                 stop_event=self._stop,
             )
+            # 成败都要收（error 事件已另行发出），前端占位动画不能残留
+            self._emit({"type": "turn_end"})
             if response is None:
                 return ""  # 错误信息已通过 error 事件发出
             message = response.choices[0].message
             turn_ctx.update({"message": message, "usage": getattr(response, "usage", None)})
             HOOKS.emit("after_turn", turn_ctx)
+            # E2.3：流式 usage 在 _consume_stream 捕获；供应商不给时保持 None
+            turn_usage = getattr(response, "usage", None)
+            turn_total = getattr(turn_usage, "total_tokens", None) if turn_usage else None
+            if turn_total:
+                self._turn_tokens = (self._turn_tokens or 0) + turn_total
 
             assistant_message = assistant_to_dict(message)
             self.history.append(assistant_message)

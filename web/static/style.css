@@ -170,6 +170,36 @@ body {
 .memorial::after  { bottom: -8px; }
 .memorial-body { line-height: 1.75; letter-spacing: .06em;
                  white-space: pre-wrap; word-break: break-word; }
+
+/* ═══════════ E3.3：Markdown 渲染样式（五类） ═══════════ */
+.memorial-body.md { white-space: normal; }
+.memorial-body.md p { white-space: pre-wrap; margin: 0 0 8px; }
+.memorial-body.md > :last-child { margin-bottom: 0; }
+.memorial-body.md h3, .memorial-body.md h4, .memorial-body.md h5, .memorial-body.md h6 {
+  font-family: var(--font-title); color: var(--liujin);
+  letter-spacing: .1em; margin: 12px 0 6px; line-height: 1.4;
+}
+.memorial-body.md h3 { font-size: 1.08rem; }
+.memorial-body.md h4 { font-size: 1rem; }
+.memorial-body.md h5, .memorial-body.md h6 { font-size: .95rem; }
+.memorial-body.md ul, .memorial-body.md ol { margin: 0 0 8px; padding-left: 24px; }
+.memorial-body.md li { margin: 3px 0; }
+.memorial-body.md li::marker { color: var(--liujin-dim); }
+.memorial-body.md strong { color: var(--minghuang); }
+.memorial-body.md em { color: #d8c08a; }
+.memorial-body.md code {
+  font-family: Consolas, "Courier New", monospace;
+  background: rgba(0,0,0,.4); color: #d8c08a;
+  padding: 1px 5px; border-radius: 3px; font-size: .88em;
+}
+.memorial-body.md pre {
+  background: rgba(0,0,0,.45); border: 1px dashed rgba(212,175,55,.3);
+  border-radius: 4px; padding: 10px 12px; margin: 0 0 8px; overflow-x: auto;
+}
+.memorial-body.md pre code {
+  background: none; padding: 0; color: #c9b585;
+  font-size: .84rem; line-height: 1.55; white-space: pre;
+}
 .memorial-foot {
   text-align: right; color: var(--liujin-dim); font-family: var(--font-title);
   font-size: .85rem; margin-top: 8px; letter-spacing: .25em;
@@ -224,6 +254,26 @@ body {
 }
 .decree-text code { color: var(--minghuang); background: rgba(0,0,0,.35);
                     padding: 2px 6px; border-radius: 3px; font-size: .88em; }
+
+/* ═══════════ E4：圣旨弹窗升级 ═══════════ */
+/* E4.1：完整工具与参数（等宽 code 块） */
+.decree-code {
+  text-align: left; font-family: Consolas, "Courier New", monospace;
+  background: rgba(0,0,0,.45); color: #d8c08a;
+  border: 1px dashed rgba(212,175,55,.4); border-radius: 4px;
+  padding: 10px 12px; margin: -8px 0 14px;
+  font-size: .8rem; line-height: 1.5; max-height: 160px; overflow: auto;
+  white-space: pre-wrap; word-break: break-all;
+}
+/* E4.3：倒计时进度条 */
+.decree-timer { height: 4px; background: rgba(0,0,0,.4);
+                border-radius: 999px; overflow: hidden; margin: -6px 0 16px; }
+.decree-timer-bar { height: 100%; width: 100%; background: var(--qingyu); border-radius: 999px; }
+.decree-code[hidden], .decree-timer[hidden] { display: none; }   /* veil 教训：显式关死 */
+/* E4.2：高危档视觉——边框/印玺转朱砂（high class 加在 .veil 上） */
+.veil.high .decree { border-color: var(--zhusha); box-shadow: 0 0 40px rgba(185,58,50,.4); }
+.veil.high .decree h3 { color: var(--zhusha); border-bottom-color: rgba(185,58,50,.5); }
+.veil.high .decree-timer-bar { background: var(--zhusha); }
 .decree-actions { display: flex; gap: 18px; justify-content: center; }
 .btn-approve {
   background: linear-gradient(180deg, #7ba697, #4f7a6a); color: #0e1a14;
@@ -242,7 +292,7 @@ body {
   border-top: 1px solid rgba(212,175,55,.4);
 }
 .decree-bar textarea {
-  flex: 1; resize: none; max-height: 140px;
+  flex: 1; resize: none; max-height: 140px; overflow-y: auto;
   background: rgba(0,0,0,.4); color: var(--minghuang);
   border: 1px solid var(--liujin-dim); border-radius: 6px;
   padding: 10px 14px; font-family: var(--font-body); font-size: .98rem;
@@ -250,6 +300,31 @@ body {
 }
 .decree-bar textarea:focus { border-color: var(--liujin);
                              box-shadow: 0 0 10px rgba(212,175,55,.25); }
+
+/* ═══════════ E1.4：空状态示例圣旨卡 ═══════════ */
+.starter { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.starter[hidden] { display: none; }   /* veil 教训：display 覆盖 hidden，必须显式关死 */
+.starter-title { font-size: .8rem; color: #9b855c; letter-spacing: .18em; }
+.starter-cards { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.starter-card {
+  font-family: var(--font-title); font-size: .88rem; letter-spacing: .08em;
+  color: var(--minghuang); background: rgba(0,0,0,.25);
+  border: 1px dashed rgba(212,175,55,.45); border-radius: 999px;
+  padding: 7px 16px; cursor: pointer;
+  transition: color .12s ease, border-color .12s ease, box-shadow .12s ease;
+}
+.starter-card:hover { color: var(--liujin); border-color: var(--liujin);
+                      box-shadow: 0 0 10px rgba(212,175,55,.3); }
+
+/* E2.1：拟旨占位（turn_start → 首个 token 前的等待反馈） */
+.memorial-think {
+  align-self: flex-start; color: var(--liujin-dim);
+  font-family: var(--font-title); font-size: .92rem;
+  letter-spacing: .2em; padding: 4px 2px;
+  animation: think-pulse 1.1s ease-in-out infinite alternate;
+}
+.memorial-think::after { content: "……"; letter-spacing: .1em; }
+@keyframes think-pulse { from { opacity: .45; } to { opacity: 1; } }
 
 /* ═══════════ B2：动态渲染补充 ═══════════ */
 /* 系统提示条（接驾/断线/门禁等） */
