@@ -451,6 +451,43 @@ body {
 .sessions li, .personas .persona { cursor: pointer; }
 .sessions li:hover .hall-name, .persona:hover { color: var(--liujin); }
 
+/* ═══════════ H1：偏殿名册管理（检索/改题名/拆殿/誊出话本） ═══════════ */
+.panel-search {
+  width: 100%; margin-bottom: 8px;
+  background: rgba(0,0,0,.4); color: var(--minghuang);
+  border: 1px solid var(--liujin-dim); border-radius: 4px;
+  padding: 5px 10px; font-size: .8rem; outline: none;
+}
+.panel-search:focus { border-color: var(--liujin); }
+.hall-actions { display: flex; gap: 6px; }
+.hall-actions .btn-mini { width: auto; flex: 1; }
+.sessions li { align-items: center; }
+.sessions li .hall-name { flex: 1; min-width: 0; overflow: hidden;
+                          text-overflow: ellipsis; white-space: nowrap; }
+.sessions li .btn-mini-inline { margin-left: 0; flex: none; }
+.sessions li .hint { flex: none; }
+.rename-input {
+  flex: 1; min-width: 0;
+  background: rgba(0,0,0,.5); color: var(--liujin);
+  border: 1px solid var(--liujin); border-radius: 3px;
+  padding: 2px 6px; font-size: .8rem; outline: none;
+}
+
+/* H1：要务驻留条（retry/门禁/报错不被流式刷走） */
+.sticky-notice {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 5px 18px;
+  background: rgba(217,162,83,.08);
+  border-top: 1px dashed rgba(217,162,83,.5);
+  color: #d9a253; font-size: .82rem; letter-spacing: .06em;
+}
+.sticky-notice[hidden] { display: none; }   /* veil 教训：display 覆盖 hidden，必须显式关死 */
+.notice-close {
+  background: transparent; border: none; cursor: pointer;
+  color: #d9a253; font-size: 1.05rem; line-height: 1; padding: 0 4px;
+}
+.notice-close:hover { color: var(--zhusha); }
+
 /* ═══════════ 窗口缩放：窄屏收偏殿，布局不塌 ═══════════ */
 @media (max-width: 860px) {
   .sidebar { width: 190px; }

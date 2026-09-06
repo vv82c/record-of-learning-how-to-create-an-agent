@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Emperor Agent · 金銮殿</title>
-<link rel="stylesheet" href="style.css?v=g1b">
+<link rel="stylesheet" href="style.css?v=h1a">
 </head>
 <body>
 
@@ -33,11 +33,15 @@
   <aside class="sidebar">
     <section class="panel">
       <h2>◈ 偏殿名册</h2>
-      <!-- C2 起由 /api/sessions 动态渲染，点击入旧殿 -->
+      <!-- C2 起由 /api/sessions 动态渲染，点击入旧殿；H1 起支持检索/改名/拆殿 -->
+      <input class="panel-search" id="session-search" placeholder="检索旧殿（题名 / 内容）……" autocomplete="off">
       <ul class="sessions" id="session-list">
         <li class="hint">（名册装载中……）</li>
       </ul>
-      <button class="btn btn-mini" type="button" id="btn-new-hall">＋ 开新殿</button>
+      <div class="hall-actions">
+        <button class="btn btn-mini" type="button" id="btn-new-hall">＋ 开新殿</button>
+        <button class="btn btn-mini" type="button" id="btn-export" title="把当前偏殿的对话誊成 Markdown 话本下载">⤓ 誊出话本</button>
+      </div>
     </section>
 
     <section class="panel">
@@ -156,6 +160,12 @@
   <span class="ledger-item">累计 <span id="ledger-total">—</span></span>
 </div>
 
+<!-- ═══════════ H1：要务驻留条（重试/门禁/报错不再被流式内容刷走，点 × 或开新一轮才收） ═══════════ -->
+<div class="sticky-notice" id="sticky-notice" hidden>
+  <span id="sticky-notice-text"></span>
+  <button class="notice-close" type="button" id="btn-notice-close" title="收起">×</button>
+</div>
+
 <!-- ═══════════ 传旨输入栏 ═══════════ -->
 <footer class="decree-bar">
   <textarea id="input" rows="1" placeholder="传旨……（Enter 传旨，Shift+Enter 换行）"></textarea>
@@ -164,6 +174,7 @@
 </footer>
 
 <!-- 资源带版本号：改版必换 v 参数，浏览器缓存不再咬住旧文件（B3 踩坑两次后的根治） -->
-<script src="app.js?v=g1b" defer></script>
+<!-- 资源带版本号：改版必换 v 参数，浏览器缓存不再咬住旧文件（B3 踩坑两次后的根治） -->
+<script src="app.js?v=h1b" defer></script>
 </body>
 </html>

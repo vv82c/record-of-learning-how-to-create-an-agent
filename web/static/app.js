@@ -98,6 +98,7 @@
   let turnHasMemorial = false; // 本轮是否产生过奏折（防 error 收场时把落款写到旧奏折）
   let pendingTools = [];       // 已 tool_start 未 tool_end 的卡片（内核顺序执行，按名配对）
   let busy = false;
+  let queuedText = null;       // H3：busy 时暂存的传旨（当差办结自动传出，Esc 撤回）
 
   /* ---- B3：回看暂停——用户上翻即停跟随，回到底部自动恢复 ---- */
   let followTail = true;
@@ -437,6 +438,17 @@
     addNode(el);
   }
 
+  /* H1：要务驻留条——重试/门禁/报错固定在输入栏上方，不随流式内容滚走；
+     用户点 ×、发新一轮（user_echo）或换殿时才收起。 */
+  function renderSticky(text) {
+    $("sticky-notice-text").textContent = text;
+    $("sticky-notice").hidden = false;
+  }
+
+  function clearSticky() { $("sticky-notice").hidden = true; }
+
+  $("btn-notice-close").addEventListener("click", clearSticky);
+
   function setLamp(mode, text) {
     lamp.className = "lamp" + (mode ? " " + mode : "");
     lamp.textContent = text;
@@ -445,7 +457,7 @@
   /* ---- 事件分发 ---- */
   function onEvent(ev) {
     switch (ev.type) {
-      case "user_echo":       hasConversation = true; starter.hidden = true; renderZhuPi(ev.text); break;
+      case "user_echo":       clearSticky(); hasConversation = true; starter.hidden = true; renderZhuPi(ev.text); break;
       case "reasoning_start": // G4：思维链先于正文，奏折带圣思段
         renderMemorialStart();
         activeThinkBox.hidden = false;
@@ -492,21 +504,22 @@
         refreshSubagentLogs();
         break;
       }
-      case "stop_gate":       renderNotice(`[质量门禁] ${ev.reason}`, "warn"); break;
-      case "retry":           renderNotice(String(ev.message || "").trim(), "warn"); break;  // 重试期间占位保留
-      case "error":           hideThinking(); renderNotice(String(ev.message || "").trim(), "warn"); break;
+      case "stop_gate":       renderSticky(`[质量门禁] ${ev.reason}`); break;
+      case "retry":           renderSticky(String(ev.message || "").trim()); break;  // H1：驻留不被流式刷走
+      case "error":           hideThinking(); renderSticky(String(ev.message || "").trim()); break;
       case "hook_ask":        openDecree(ev.reason, ev.tool, ev.input, ev.level); break;   // C1/E4：圣旨弹窗
       case "hook_decision":
         if (ev.action === "deny") {
           // 弹窗开着收到 deny = 服务端超时驳回（fail-closed）：前端同步关窗对齐观感（E4）
           if (!veil.hidden) closeDecree();
-          renderNotice(`[门禁·驳回] ${ev.reason}`, "warn");
+          renderSticky(`[门禁·驳回] ${ev.reason}`);
         } else if (!veil.hidden) {
           closeDecree();
         }
         break;
       case "session":
         hideThinking();          // 换殿/重连不残留上一殿的拟旨占位
+        clearSticky();           // H1：换殿清掉上一殿的驻留警告
         resetLedger();           // E5：换殿账本归零（内核已重置，前端观感对齐）
         editMode = false;        // G3：换殿退出改旨模式
         currentSessionId = ev.id;
@@ -545,17 +558,21 @@
           lastMemorialSign.textContent += meta;
         }
         renderLedger(ev.usage, ev.context_window);   // E5：账房入账
-        finishTurn();
+        // H1：done 只记账不收工——busy 保持到 idle（服务端 busy.clear 之后），
+        // 消除 done→idle 窗口里发送必撞"仍在办理中"的竞态
         break;
-      case "idle":            finishTurn(); break;
+      case "idle":            finishTurn(); flushQueued(); break;
       case "pong":            break;
     }
   }
 
   function refreshSend() {
     const ready = ws && ws.readyState === WebSocket.OPEN;
-    btnSend.disabled = busy || !ready;
-    input.placeholder = busy ? "总管行走中……"
+    btnSend.disabled = !ready;   // H3：busy 不再禁用——行走中也能拟旨，Enter 暂存排队
+    btnSend.textContent = queuedText ? "已暂存" : "传 旨";
+    input.placeholder = busy
+      ? (queuedText ? "行走中……（排队之旨已录，Enter 可改暂存，Esc 撤回）"
+                    : "行走中……（可先拟旨，Enter 暂存待传）")
       : ready ? "传旨……（Enter 传旨，Shift+Enter 换行）" : "未接驾……";
   }
 
@@ -563,6 +580,14 @@
     setLamp("on", "● 当值"); busy = false; refreshSend(); btnStop.hidden = true;
     regenButtons.forEach(b => { b.hidden = true; });   // G3：只保留最新奏折的另拟钮
     if (lastMemorialRegen) lastMemorialRegen.hidden = false;
+  }
+
+  /* H3：把暂存的传旨正式送出（idle 时服务端已清 busy，此刻发送必不落空） */
+  function flushQueued() {
+    if (!queuedText) return;
+    const text = queuedText;
+    queuedText = null;
+    sendText(text, "send");
   }
 
   /* ---- E5：内库账房——用度计数板 ----
@@ -635,9 +660,17 @@
     return pos === null || input.value.slice(pos).indexOf("\n") === -1;
   }
 
-  /* 发送动作本体：守卫 + 入队 + 忙置位。传旨栏与 E1.4 示例圣旨卡共用。 */
+  /* 发送动作本体：守卫 + 入队 + 忙置位。传旨栏与 E1.4 示例圣旨卡共用。
+     H3：busy 且是普通传旨 → 暂存排队（改旨/另拟只在闲时可发起，不排队）；idle 时冲队。 */
   function sendText(text, kind = "send") {
-    if (!text || busy || !ws || ws.readyState !== WebSocket.OPEN) return false;
+    if (!text || !ws || ws.readyState !== WebSocket.OPEN) return false;
+    if (busy) {
+      if (kind !== "send") return false;
+      queuedText = text;
+      refreshSend();
+      renderNotice(`（行走中，此旨暂存待传：「${text.slice(0, 24)}」——）`);
+      return true;
+    }
     ws.send(JSON.stringify({ type: kind, text }));
     rememberInput(text);
     busy = true;
@@ -791,14 +824,15 @@
   }
 
   async function refreshSessions() {
-    const data = await fetchJSON("/api/sessions");
+    const q = ($("session-search").value || "").trim();   // H1：检索框有词即走服务端全文检索
+    const data = await fetchJSON(q ? `/api/sessions?q=${encodeURIComponent(q)}` : "/api/sessions");
     if (!data || !Array.isArray(data.sessions)) return;
     const ul = $("session-list");
     ul.replaceChildren();
     if (data.sessions.length === 0) {
       const li = document.createElement("li");
       li.className = "hint";
-      li.textContent = "（尚无偏殿）";
+      li.textContent = q ? "（未检索到相配的偏殿）" : "（尚无偏殿）";
       ul.appendChild(li);
       return;
     }
@@ -808,16 +842,109 @@
       const name = document.createElement("span");
       name.className = "hall-name";
       name.textContent = fmtHallName(s);
+      // H1：改题名（当场行内编辑，Enter 存 / Esc 罢）
+      const btnRename = document.createElement("button");
+      btnRename.type = "button"; btnRename.className = "btn-mini-inline"; btnRename.textContent = "改";
+      btnRename.addEventListener("click", (e) => { e.stopPropagation(); startRename(li, s, name); });
+      li.append(name, btnRename);
+      if (s.id !== currentSessionId) {   // 当值偏殿不可拆（服务端 ACTIVE_SESSIONS 也会拒）
+        const btnDel = document.createElement("button");
+        btnDel.type = "button"; btnDel.className = "btn-mini-inline"; btnDel.textContent = "拆";
+        btnDel.addEventListener("click", (e) => { e.stopPropagation(); deleteSession(s.id, btnDel); });
+        li.append(btnDel);
+      }
       const hint = document.createElement("span");
       hint.className = "hint";
       hint.textContent = s.id === currentSessionId ? "当前" : `${s.messages}条`;
-      li.append(name, hint);
+      li.append(hint);
       li.addEventListener("click", () => {
         if (s.id !== currentSessionId && !busy) resumeSession(s.id);
       });
       ul.appendChild(li);
     }
   }
+
+  /* H1：行内改题名——输入框顶掉名字，Enter 存 / Esc 罢 / 点别处 blur 罢 */
+  function startRename(li, s, nameSpan) {
+    if (li.querySelector(".rename-input")) return;
+    const inp = document.createElement("input");
+    inp.className = "rename-input";
+    inp.value = s.preview || "";
+    li.replaceChild(inp, nameSpan);
+    inp.focus();
+    inp.select();
+    let settled = false;
+    const done = async (save) => {
+      if (settled) return;
+      settled = true;
+      const t = inp.value.trim();
+      if (save && t && t !== (s.preview || "")) {
+        const r = await fetch("/api/sessions/rename", { method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: s.id, title: t }) });
+        const err = r.ok ? null : await r.json().catch(() => null);
+        renderNotice(r.ok ? `（偏殿已改题名：「${t}」——）`
+                          : `（改题名失败：${err?.detail || "未知原因"}）`, r.ok ? "" : "warn");
+        refreshSessions();
+      } else {
+        li.replaceChild(nameSpan, inp);   // 没改动就不惊动名册
+      }
+    };
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); done(true); }
+      else if (e.key === "Escape") { e.preventDefault(); done(false); }
+    });
+    inp.addEventListener("blur", () => done(false));
+  }
+
+  /* H1：拆殿（两步确认，与模型阁撤下同款交互） */
+  let deleteArmSession = null;
+  async function deleteSession(id, btn) {
+    if (deleteArmSession !== id) {
+      deleteArmSession = id;
+      btn.textContent = "确认拆?";
+      setTimeout(() => {
+        btn.textContent = "拆";
+        if (deleteArmSession === id) deleteArmSession = null;
+      }, 3000);
+      return;
+    }
+    deleteArmSession = null;
+    const r = await fetch("/api/sessions/delete", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }) });
+    const err = r.ok ? null : await r.json().catch(() => null);
+    renderNotice(r.ok ? `（偏殿 ${id} 已拆，名册除名——）`
+                      : `（拆殿失败：${err?.detail || "未知原因"}）`, r.ok ? "" : "warn");
+    refreshSessions();
+  }
+
+  /* H1：检索框防抖 → refreshSessions 自取框中关键词 */
+  let searchTimer = null;
+  $("session-search").addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(refreshSessions, 300);
+  });
+
+  /* H2：誊出话本——当前偏殿导出为 Markdown 下载 */
+  $("btn-export").addEventListener("click", async () => {
+    if (!currentSessionId) { renderNotice("（本殿尚未开口传旨，无话本可誊——）", "warn"); return; }
+    const r = await fetch(`/api/sessions/export?id=${encodeURIComponent(currentSessionId)}`);
+    if (!r.ok) {
+      const err = await r.json().catch(() => null);
+      renderNotice(`（誊抄失败：${err?.detail || "未知原因"}）`, "warn");
+      return;
+    }
+    const blob = await r.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `emperor-${currentSessionId}.md`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    renderNotice("（话本已誊出，请查收下载——）");
+  });
 
   function resumeSession(id) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -940,9 +1067,11 @@
     ws = new WebSocket(`ws://${location.host}/ws`);
     ws.onopen = () => {
       offlineNotified = false;
+      busy = false;              // 服务端每条连接都是全新 runner：重连后必无在途差事，防 busy 卡死
+      refreshSend();
       renderNotice("（已接驾，老奴候旨——）");
       setLamp("on", "● 当值");
-      refreshSend();
+      flushQueued();             // H3：断线前暂存之旨，接驾后即刻代传
       refreshSessions(); refreshPersonas(); refreshTeam(); refreshMemory();
       refreshSubagentLogs(); refreshMcp(); refreshModels();
     };
@@ -967,6 +1096,10 @@
     if (e.key === "Escape" && editMode) {   // G3：改旨可反悔
       editMode = false;
       refreshSend();
+    } else if (e.key === "Escape" && queuedText) {   // H3：暂存之旨可撤回
+      queuedText = null;
+      renderNotice("（已撤回暂存之旨——）");
+      refreshSend();
     }
     if (e.key === "ArrowUp" && caretOnFirstLine() && inputHistory.length) {
       e.preventDefault();
@@ -988,6 +1121,8 @@
   connect();
 
   /* E3.3 验证钩子：把渲染器导出给自动化测试直接调用（生产路径不引用）。
-     注入样本测试依赖它做确定性验证——模型会拒绝原样回显攻击串，走对话流测不到渲染器本身。 */
+     注入样本测试依赖它做确定性验证——模型会拒绝原样回显攻击串，走对话流测不到渲染器本身。
+     H1 同款导出驻留条：自动化可直接驱动 renderSticky/clearSticky 验证显隐与关闭钮。 */
   window.__emperor_md = { render: renderMarkdown, inline: mdInline };
+  window.__emperor_notice = { sticky: renderSticky, clear: clearSticky };
 })();

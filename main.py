@@ -11,7 +11,7 @@ import json
 
 from agent_core import todos as todos_mod
 from agent_core.console import ensure_utf8_console
-from agent_core.config import MCP_CONFIG_PATH, PERSONA_DIR
+from agent_core.config import MCP_CONFIG_PATH, PERSONA_DIR, PROJECT_ROOT
 from agent_core.hooks import confirm_hook_decision
 from agent_core.mcp_client import connect_all, list_mcp_servers
 from agent_core.memory import MEMORY
@@ -60,7 +60,7 @@ def main():
     connect_all(MCP_CONFIG_PATH)
 
     print("累积式 Agent（tools + memory + skills + subagent + team + mcp + hooks）")
-    print("输入 q/quit/exit 退出；/team 队友；/inbox 收件箱；/mcp 工具；/todos 计划；/memory 记忆；/compact 压缩；/new 新会话；/resume 恢复会话；/persona 人格")
+    print("输入 q/quit/exit 退出；/team 队友；/inbox 收件箱；/mcp 工具；/todos 计划；/memory 记忆；/compact 压缩；/new 新会话；/resume 恢复会话；/find 检索会话；/export 誊出话本；/persona 人格")
     runner = SessionRunner(on_event=terminal_printer, confirmer=confirm_hook_decision)
     print(f"当前会话：{runner.session_id}")
 
@@ -142,6 +142,37 @@ def main():
                 print(f"[手动压缩完成] history: {before} -> {after} 条，旧对话已沉淀进记忆文件")
             else:
                 print(f"[无需压缩] 当前 history 共 {after} 条，没有可安全切分的旧对话段")
+            print()
+            continue
+        # H1：会话检索（/resume 列表太长时按关键词缩小范围：题名 + 全文命中）
+        if command == "/find" or command.startswith("/find "):
+            parts = command.split(maxsplit=1)
+            if len(parts) < 2:
+                print("用法：/find <关键词>（在题名与对话内容中检索）\n")
+                continue
+            hits = SESSIONS.list_sessions(parts[1])
+            if not hits:
+                print(f"[未检索到] 没有偏殿匹配「{parts[1]}」\n")
+                continue
+            print(f"检索「{parts[1]}」命中 {len(hits)} 殿（新→旧，最多显示 15 个）：")
+            for s in hits[:15]:
+                print(f"  {s['id']}  [{s['mtime']}] {s['messages']}条  {s['preview']}")
+            print("用 /resume <会话ID> 恢复继续。\n")
+            continue
+        # H2：整卷导出为 Markdown 话本（exports/ 目录下，文件名 = 会话ID）
+        if command == "/export" or command.startswith("/export "):
+            parts = command.split()
+            target = parts[1] if len(parts) > 1 else runner.session_id
+            md = SESSIONS.export_markdown(target)
+            if md is None:
+                print(f"[无法导出] 会话 {target} 尚无记录（传过旨才有话本可誊）")
+                print()
+                continue
+            out_dir = PROJECT_ROOT / "exports"
+            out_dir.mkdir(exist_ok=True)
+            out = out_dir / f"{target}.md"
+            out.write_text(md, encoding="utf-8")
+            print(f"[话本已誊出] {out}")
             print()
             continue
 

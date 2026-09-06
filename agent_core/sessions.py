@@ -30,6 +30,7 @@ class SessionStore:
         self.dir = sessions_dir
         self.dir.mkdir(parents=True, exist_ok=True)
         self.titles_path = self.dir / "titles.json"   # G2：会话标题（list_sessions 只扫 *.jsonl，不会误列）
+        self.custom_path = self.dir / "custom_titles.json"   # H1：手动改过名的会话（防 LLM 自动题名覆盖）
         self._used_ids: set[str] = set()  # 同秒多次 new_session 的进程内撞名防护
 
     # ---- G2：标题存取（独立 JSON，避免动全保真会话文件） ----
@@ -49,6 +50,44 @@ class SessionStore:
 
     def get_title(self, session_id: str) -> str:
         return self._load_titles().get(session_id, "")
+
+    # ---- H1：会话管理三件套之改名（手动题名受保护，不被 G2 自动题名覆盖） ----
+    def _load_custom(self) -> set:
+        if not self.custom_path.exists():
+            return set()
+        try:
+            return set(json.loads(self.custom_path.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            return set()
+
+    def rename_session(self, session_id: str, title: str) -> None:
+        self.set_title(session_id, title)
+        marks = self._load_custom()
+        marks.add(session_id)
+        self.custom_path.write_text(
+            json.dumps(sorted(marks), ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def is_custom(self, session_id: str) -> bool:
+        return session_id in self._load_custom()
+
+    def delete_session(self, session_id: str) -> bool:
+        """删除会话文件与轮转备份，并清掉两条题名记录。返回是否确有文件被删。"""
+        path = self._path(session_id)
+        existed = path.exists()
+        if existed:
+            path.unlink()
+        for bak in self.dir.glob(f"{Path(session_id).name}-*.jsonl.bak"):
+            bak.unlink()
+        titles = self._load_titles()
+        if titles.pop(session_id, None) is not None or existed:
+            self.titles_path.write_text(
+                json.dumps(titles, ensure_ascii=False, indent=2), encoding="utf-8")
+        marks = self._load_custom()
+        if session_id in marks:
+            marks.discard(session_id)
+            self.custom_path.write_text(
+                json.dumps(sorted(marks), ensure_ascii=False, indent=2), encoding="utf-8")
+        return existed
 
     # ---- G3：回滚截断（另拟/改旨：文件行数与 history 一一对应，按前缀重写） ----
     def truncate(self, session_id: str, keep: int) -> None:
@@ -125,22 +164,32 @@ class SessionStore:
                     })
         return repaired
 
-    def list_sessions(self) -> list[dict]:
-        """按修改时间新→旧列出会话：ID、时间、条数、首条用户消息预览。"""
+    def list_sessions(self, query: str = "") -> list[dict]:
+        """按修改时间新→旧列出会话：ID、时间、条数、首条用户消息预览。
+
+        H1：query 非空时做标题+全文检索（不区分大小写），只返回命中的会话。
+        """
+        q = query.strip().lower()
         sessions = []
         for f in sorted(self.dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
             lines = [l for l in f.read_text(encoding="utf-8").splitlines() if l.strip()]
             first_user = ""
+            all_text: list[str] = []   # 检索用全文（含工具输入输出的原样内容）
             for l in lines:
                 try:
                     msg = json.loads(l).get("msg", {})
                 except json.JSONDecodeError:
                     continue
-                if msg.get("role") == "user":
-                    first_user = str(msg.get("content", ""))[:30]
-                    break
+                text = str(msg.get("content", ""))
+                all_text.append(text)
+                if msg.get("role") == "user" and not first_user:
+                    first_user = text[:30]
+            title = self.get_title(f.stem)
+            # H1：检索过滤——题名命中或任一条消息内容命中
+            if q and q not in title.lower() and not any(q in t.lower() for t in all_text):
+                continue
             # G2：有 LLM 生成的标题优先（偏殿名册"像人话"的关键）
-            preview = self.get_title(f.stem) or first_user or "(空会话)"
+            preview = title or first_user or "(空会话)"
             sessions.append({
                 "id": f.stem,
                 "messages": len(lines),
@@ -156,8 +205,43 @@ class SessionStore:
         lines = ["历史会话（新→旧，最多显示 15 个）："]
         for s in items[:15]:
             lines.append(f"  {s['id']}  [{s['mtime']}] {s['messages']}条  {s['preview']}")
-        lines.append("用 /resume <会话ID> 恢复继续。")
+        lines.append("用 /resume <会话ID> 恢复继续；/find <关键词> 检索；/export <会话ID> 誊出话本。")
         return "\n".join(lines)
+
+    def export_markdown(self, session_id: str) -> str | None:
+        """H2：把会话誊成可读的 Markdown 话本（用户圣谕 + 助手奏对 + 工具奉差一行带过）。
+
+        tool 回执多为机器输出，整卷导出以对话可读为主，只记"调了什么工具"不记原始回执。
+        会话文件懒创建，尚无记录时返回 None。
+        """
+        path = self._path(session_id)
+        if not path.exists():
+            return None
+        title = self.get_title(session_id)
+        out = [f"# 传旨记录 · {title or session_id}", "",
+               f"- 会话ID：`{session_id}`",
+               f"- 导出时间：{datetime.now():%Y-%m-%d %H:%M}", "", "---", ""]
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                msg = json.loads(line)["msg"]
+            except (json.JSONDecodeError, KeyError):
+                continue
+            role = msg.get("role")
+            content = str(msg.get("content") or "").strip()
+            if role == "user":
+                out += [f"## 👑 圣谕", "", content or "（空）", ""]
+            elif role == "assistant":
+                if content:
+                    out += ["## 📜 奏对", "", content, ""]
+                for tc in msg.get("tool_calls") or []:
+                    fn = (tc.get("function") or {})
+                    out.append(f"> ⚙ 内务府奉差：`{fn.get('name', '?')}`")
+                if msg.get("tool_calls"):
+                    out.append("")
+            # role == "tool"：回执不进话本
+        return "\n".join(out)
 
 
 def _rotate_session_if_needed(path: Path) -> None:

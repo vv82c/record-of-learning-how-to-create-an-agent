@@ -371,8 +371,14 @@ class SessionRunner:
 
     # ---- G2：会话自动命名 ----
     def _maybe_title(self, reply: str) -> None:
-        """新会话第一轮结束后用一次微型 LLM 调用起 ≤10 字标题；失败静默（标题缺失不影响对话）。"""
+        """新会话第一轮结束后用一次微型 LLM 调用起 ≤10 字标题；失败静默（标题缺失不影响对话）。
+
+        H1：用户手动改过名的会话（custom_titles）不参与自动题名——皇上的朱笔大过老奴的题名。
+        """
         if self._titled or not reply.strip() or llm.client is None:
+            return
+        if SESSIONS.is_custom(self.session_id):
+            self._titled = True   # 本连接内不再重试
             return
         user_text = next((m.get("content") for m in reversed(self.history)
                           if m.get("role") == "user"), "")

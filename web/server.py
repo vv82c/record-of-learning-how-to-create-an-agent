@@ -30,8 +30,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from urllib.parse import quote
 
 from agent_core import llm, model_profiles, todos as todos_mod
 from agent_core.config import MCP_CONFIG_PATH, PERSONA_DIR, SUBAGENT_LOG_DIR
@@ -65,8 +67,48 @@ async def health():
 
 # ═══════════ C2：面板数据端点（全部只读，操作走 ws 消息） ═══════════
 @app.get("/api/sessions")
-async def api_sessions():
-    return {"sessions": SESSIONS.list_sessions()}
+async def api_sessions(q: str = ""):
+    # H1：q 非空时为标题+全文检索模式（前端检索框防抖调用）
+    return {"sessions": SESSIONS.list_sessions(q)}
+
+
+# ═══════════ H1：会话管理三件套（删除/改名走 REST：跨连接的全局操作，与模型阁同理） ═══════════
+# 各连接正在使用的会话 ID（new/resume 时登记，断开时移除）：防止"办差中的偏殿"被从名册里拆掉——
+# 删掉后 runner 仍持着该 session_id 继续追加，文件会静默重建，名册与磁盘从此对不上账。
+ACTIVE_SESSIONS: set[str] = set()
+
+
+@app.post("/api/sessions/rename")
+async def api_sessions_rename(payload: dict):
+    sid = str(payload.get("id", ""))
+    title = str(payload.get("title", "")).strip()[:30]
+    if not sid or not title:
+        raise HTTPException(400, "会话 ID 与新题名都不能为空")
+    if not SESSIONS.exists(sid):
+        raise HTTPException(404, f"会话不存在：{sid}")
+    SESSIONS.rename_session(sid, title)
+    return {"ok": True}
+
+
+@app.post("/api/sessions/delete")
+async def api_sessions_delete(payload: dict):
+    sid = str(payload.get("id", ""))
+    if sid in ACTIVE_SESSIONS:
+        raise HTTPException(409, "该偏殿正在当值，请先开新殿或转往别殿再拆")
+    if not SESSIONS.delete_session(sid):
+        raise HTTPException(404, f"会话不存在：{sid}")
+    return {"ok": True}
+
+
+@app.get("/api/sessions/export")
+async def api_sessions_export(id: str):
+    """H2：整卷导出为 Markdown 话本（浏览器触发下载）。"""
+    md = SESSIONS.export_markdown(str(id))
+    if md is None:
+        raise HTTPException(404, "该会话尚无记录（传过旨才有话本可誊）")
+    fname = quote(f"emperor-{Path(str(id)).name}.md")
+    return Response(md, media_type="text/markdown; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"})
 
 
 @app.get("/api/memory")
@@ -233,6 +275,7 @@ async def ws_endpoint(websocket: WebSocket):
     confirmer = WSConfirmer(loop, ASK_TIMEOUT)
     runner = SessionRunner(on_event=on_event, confirmer=confirmer)
     busy = threading.Event()  # 同一连接同时只办一件差事
+    ACTIVE_SESSIONS.add(runner.session_id)   # H1：初始会话也登记（防当值偏殿被拆）
 
     pump_task = asyncio.create_task(pump())
     try:
@@ -255,13 +298,17 @@ async def ws_endpoint(websocket: WebSocket):
             # ---- C2：会话与人格操作（UI 面板的动作入口） ----
             elif kind == "new_session":
                 if not busy.is_set():
+                    ACTIVE_SESSIONS.discard(runner.session_id)   # 旧殿名册除名，允许被拆
                     sid = runner.new_session()
+                    ACTIVE_SESSIONS.add(sid)
                     out_queue.put_nowait({"type": "session", "id": sid, "fresh": True})
                     out_queue.put_nowait({"type": "todos", "todos": todos_mod.TODOS})
             elif kind == "resume":
                 if not busy.is_set():
                     target = str(msg.get("id", ""))
                     if SESSIONS.exists(target):
+                        ACTIVE_SESSIONS.discard(runner.session_id)
+                        ACTIVE_SESSIONS.add(target)
                         count = runner.resume(target)
                         out_queue.put_nowait({"type": "session", "id": target,
                                               "resumed": True, "messages": count})
@@ -306,6 +353,7 @@ async def ws_endpoint(websocket: WebSocket):
         pass
     finally:
         pump_task.cancel()
+        ACTIVE_SESSIONS.discard(runner.session_id)   # H1：连接断开，名册放行该殿
 
 
 # 静态目录挂到根（html=True 时 "/" 自动伺服 index.html）。
