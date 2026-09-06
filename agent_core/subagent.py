@@ -2,20 +2,23 @@
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from datetime import datetime
 from pathlib import Path
 
 from .config import SUBAGENT_LOG_DIR
-from . import llm
+from . import app_settings, llm
 from .llm import assistant_to_dict, to_tool_call
 from .tools import TOOL_SCHEMAS, execute_basic_tool
 
 # 任务 5.1：失败预算（熔断）。oxalpha 事件里子代理在网络不可达时傻傻烧满全部回合，
 # 只回传一句无原因的固定失败串。现在连续 N 次工具失败即提前收兵，并回传原因与统计。
 # 阈值用"连续"而非"累计"：累计会把"多次失败后成功"的健康探索也误杀。
-FAIL_BUDGET = int(os.environ.get("AGENT_SUBAGENT_FAIL_BUDGET", "3"))
+# 阶段九：预算走内务府设置（每次派遣现读，改完即生效），env 种子在 app_settings 里。
+
+
+def _fail_budget() -> int:
+    return app_settings.load()["subagent_fail_budget"]
 
 
 def _is_tool_failure(content: str) -> bool:
@@ -215,7 +218,7 @@ def run_subagent(task: str, agent_type: str = "neiguan_yingzao",
             logger.tool(turn=turn + 1, name=block.name, ok=not failed, result=content)
 
         # 熔断检查放在整批工具执行完之后：协议要求每个 tool_call 都要有配对结果
-        if consecutive_failures >= FAIL_BUDGET:
+        if consecutive_failures >= _fail_budget():
             text = _circuit_breaker_message(consecutive_failures, turn + 1)
             print(f"  └── 连续 {consecutive_failures} 次工具失败，触发熔断提前收兵（第 {turn + 1} 轮）──\n")
             print(f"[小太监回禀]: {text}\n")

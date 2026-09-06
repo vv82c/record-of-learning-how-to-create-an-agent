@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 
-from agent_core import todos as todos_mod
+from agent_core import app_settings, todos as todos_mod
 from agent_core.console import ensure_utf8_console
 from agent_core.config import MCP_CONFIG_PATH, PERSONA_DIR, PROJECT_ROOT
 from agent_core.hooks import confirm_hook_decision
@@ -60,7 +60,7 @@ def main():
     connect_all(MCP_CONFIG_PATH)
 
     print("累积式 Agent（tools + memory + skills + subagent + team + mcp + hooks）")
-    print("输入 q/quit/exit 退出；/team 队友；/inbox 收件箱；/mcp 工具；/todos 计划；/memory 记忆；/compact 压缩；/new 新会话；/resume 恢复会话；/find 检索会话；/export 誊出话本；/persona 人格")
+    print("输入 q/quit/exit 退出；/team 队友；/inbox 收件箱；/mcp 工具；/todos 计划；/memory 记忆；/compact 压缩；/new 新会话；/resume 恢复会话；/find 检索会话；/export 誊出话本；/persona 人格；/settings 设置")
     runner = SessionRunner(on_event=terminal_printer, confirmer=confirm_hook_decision)
     print(f"当前会话：{runner.session_id}")
 
@@ -135,6 +135,13 @@ def main():
                 continue
             runner.switch_persona(target)
             print(f"[人格已切换] {target}（下一轮对话生效）\n")
+            continue
+        # 阶段九：查看内务府当前设置（修改走界面端"内务府"面板或直接编辑 settings.json）
+        if command == "/settings":
+            s = app_settings.load()
+            print(f"===== 内务府设置 =====")
+            print(f"圣旨批阅时限：{s['ask_timeout']:.0f} 秒｜默认人格：{s['default_persona'] or '(内核默认)'}｜出巡熔断预算：{s['subagent_fail_budget']} 次")
+            print()
             continue
         if command == "/compact":
             before, after = runner.compact()

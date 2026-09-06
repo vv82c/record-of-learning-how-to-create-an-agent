@@ -304,6 +304,15 @@ body {
   padding: 6px 10px; font-size: .82rem; outline: none;
 }
 .model-form input:focus { border-color: var(--liujin); }
+/* I3：内务府——下拉框与输入框同款式 */
+.model-form select {
+  background: rgba(0,0,0,.4); color: var(--minghuang);
+  border: 1px solid var(--liujin-dim); border-radius: 4px;
+  padding: 6px 10px; font-size: .82rem; outline: none;
+  font-family: var(--font-body);
+}
+.model-form select:focus { border-color: var(--liujin); }
+.model-form select option { background: #241a12; color: var(--minghuang); }
 
 /* ═══════════ G：人性化交互（圣思/改旨/另拟） ═══════════ */
 /* G4：圣思折叠段——思维链 */

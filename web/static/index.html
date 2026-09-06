@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Emperor Agent · 金銮殿</title>
-<link rel="stylesheet" href="style.css?v=h1a">
+<link rel="stylesheet" href="style.css?v=i1">
 </head>
 <body>
 
@@ -86,6 +86,18 @@
           <button class="btn btn-mini" id="btn-model-cancel" type="button" hidden>取消修改</button>
         </div>
       </details>
+    </section>
+
+    <section class="panel">
+      <h2>◈ 内务府</h2>
+      <!-- I3：行为设置（/api/settings），改完即生效；上下文窗口归模型阁按档案管 -->
+      <div class="model-form settings-form">
+        <input id="set-ask-timeout" type="number" min="5" max="600" step="1" placeholder="圣旨批阅时限（秒，5~600）" autocomplete="off">
+        <select id="set-persona" class="settings-select" title="新开偏殿的默认人格"></select>
+        <input id="set-fail-budget" type="number" min="1" max="10" step="1" placeholder="小太监出巡熔断预算（次，1~10）" autocomplete="off">
+        <button class="btn btn-mini" id="btn-settings-save" type="button">颁行新规</button>
+        <span class="hint">批阅时限对新建连接生效；默认人格对新殿生效；上下文窗口在模型阁按档案配置</span>
+      </div>
     </section>
 
     <section class="panel">
@@ -175,6 +187,6 @@
 
 <!-- 资源带版本号：改版必换 v 参数，浏览器缓存不再咬住旧文件（B3 踩坑两次后的根治） -->
 <!-- 资源带版本号：改版必换 v 参数，浏览器缓存不再咬住旧文件（B3 踩坑两次后的根治） -->
-<script src="app.js?v=h1b" defer></script>
+<script src="app.js?v=i1" defer></script>
 </body>
 </html>

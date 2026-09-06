@@ -35,7 +35,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from urllib.parse import quote
 
-from agent_core import llm, model_profiles, todos as todos_mod
+from agent_core import app_settings, llm, model_profiles, todos as todos_mod
 from agent_core.config import MCP_CONFIG_PATH, PERSONA_DIR, SUBAGENT_LOG_DIR
 from agent_core.console import ensure_utf8_console
 from agent_core.mcp_client import connect_all, list_mcp_servers
@@ -45,8 +45,8 @@ from agent_core.sessions import SESSIONS
 from agent_core.team import TEAM
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-# ask 等待回执的超时（秒）：超时按驳回处理；测试时可调小
-ASK_TIMEOUT = float(os.environ.get("EMPEROR_ASK_TIMEOUT", "120"))
+# ask 等待回执的超时（秒）：阶段九起走内务府设置（每条连接建立时现读，改完即生效）；
+# EMPEROR_ASK_TIMEOUT 只作为 settings.json 缺失时的种子值
 
 ensure_utf8_console()   # GBK 控制台 print emoji 会炸内核，入口处统一 UTF-8
 
@@ -114,6 +114,21 @@ async def api_sessions_export(id: str):
 @app.get("/api/memory")
 async def api_memory():
     return {"memory": MEMORY.read_memory(), "user": MEMORY.read_user()}
+
+
+# ═══════════ I2：内务府端点（行为设置是进程级全局，走 REST 而非 ws，与模型阁同理） ═══════════
+@app.get("/api/settings")
+async def api_settings():
+    return {"settings": app_settings.load()}
+
+
+@app.post("/api/settings")
+async def api_settings_update(payload: dict):
+    try:
+        merged = app_settings.save(payload or {})
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"settings": merged}
 
 
 @app.get("/api/personas")
@@ -272,7 +287,7 @@ async def ws_endpoint(websocket: WebSocket):
         """runner 线程 → 事件循环：线程安全地入队。"""
         loop.call_soon_threadsafe(out_queue.put_nowait, event)
 
-    confirmer = WSConfirmer(loop, ASK_TIMEOUT)
+    confirmer = WSConfirmer(loop, app_settings.load()["ask_timeout"])
     runner = SessionRunner(on_event=on_event, confirmer=confirmer)
     busy = threading.Event()  # 同一连接同时只办一件差事
     ACTIVE_SESSIONS.add(runner.session_id)   # H1：初始会话也登记（防当值偏殿被拆）

@@ -31,3 +31,6 @@ build.log
 
 # ===== F1 模型配置中心（含 API Key，与 .env 同级敏感，绝不入库） =====
 model_profiles.json
+
+# ===== 阶段九：内务府行为设置（机器本地偏好，不入库） =====
+settings.json

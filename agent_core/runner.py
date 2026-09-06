@@ -22,6 +22,7 @@ from types import SimpleNamespace
 from openai import APIConnectionError, InternalServerError, RateLimitError
 
 from . import llm, memory_compact, todos as todos_mod
+from . import app_settings
 from .config import PERSONA_DIR
 from .hooks import HOOKS, HookDecision, confirm_hook_decision
 from .llm import assistant_to_dict, to_tool_call   # F2：client/MODEL 一律走 llm. 属性引用（可热重建）
@@ -257,7 +258,8 @@ class SessionRunner:
     def __init__(self, on_event=None, confirmer=None, persona: str | None = None):
         self._on_event = on_event
         self._confirmer = confirmer or confirm_hook_decision
-        self.persona = persona or os.environ.get("AGENT_PERSONA", DEFAULT_PERSONA)
+        # 阶段九：默认人格走内务府设置（settings.json 覆盖 .env 种子），每次建连接现读
+        self.persona = persona or app_settings.load().get("default_persona") or DEFAULT_PERSONA
         self.history: list[dict] = []
         self.session_id = SESSIONS.new_session()
         self._stop = threading.Event()

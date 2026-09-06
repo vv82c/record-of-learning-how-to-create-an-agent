@@ -19,10 +19,10 @@
         ledgerTotal = $("ledger-total");   // E5：内库账房
 
   /* ---- C1：圣旨待批弹窗 ----
-     hook_ask → 弹窗 + 倒计时（与服务端 ASK_TIMEOUT 同源配置，超时即驳回按钮自动按下；
-     即使倒计时与服务器有偏差，服务端超时仍 fail-closed，前端只是尽力同步观感）。 */
+     hook_ask → 弹窗 + 倒计时。I3 起时限从 /api/settings 现读（内务府颁行后即时联动）；
+     即使倒计时与服务器有偏差，服务端超时仍 fail-closed，前端只是尽力同步观感。 */
   let countdownTimer = null;
-  const ASK_TIMEOUT_MS = 120000;   // 与 web/server.py 的 EMPEROR_ASK_TIMEOUT 默认一致
+  let askTimeoutMs = 120000;   // 初值与内核缺省一致，refreshSettings 后以设置为准
 
   function openDecree(reason, tool, inputObj, level) {
     decreeText.textContent = `皇上，此令需您朱批：${reason}`;
@@ -50,8 +50,8 @@
   }
 
   function startCountdown() {
-    const total = ASK_TIMEOUT_MS / 1000;
-    const deadline = Date.now() + ASK_TIMEOUT_MS;
+    const total = askTimeoutMs / 1000;
+    const deadline = Date.now() + askTimeoutMs;
     decreeCount.hidden = false;
     decreeTimer.hidden = false;
     decreeBar.style.width = "100%";
@@ -798,6 +798,55 @@
     refreshModels();
   });
 
+  /* ---- I3：内务府——行为设置（REST：进程级全局，与模型阁同理） ----
+     只在接驾时拉取回填（不进轮询——避免把用户改到一半的表单冲掉）；
+     保存成功即同步本地的批阅倒计时时长，下个圣旨弹窗立即按新规计时。 */
+  async function refreshSettings() {
+    const [data, personaData] = await Promise.all([
+      fetchJSON("/api/settings"), fetchJSON("/api/personas"),
+    ]);
+    if (!data || typeof data.settings !== "object") return;
+    const s = data.settings;
+    askTimeoutMs = (Number(s.ask_timeout) || 120) * 1000;
+    $("set-ask-timeout").value = s.ask_timeout;
+    $("set-fail-budget").value = s.subagent_fail_budget;
+    const sel = $("set-persona");
+    sel.replaceChildren();
+    const optEmpty = document.createElement("option");
+    optEmpty.value = "";
+    optEmpty.textContent = "（未指定——用内核默认）";
+    sel.appendChild(optEmpty);
+    for (const n of (personaData?.personas) || []) {
+      const o = document.createElement("option");
+      o.value = n;
+      o.textContent = n === "taijian" ? "太监总管" : n === "guanjia" ? "英式管家" : n;
+      if (n === s.default_persona) o.selected = true;
+      sel.appendChild(o);
+    }
+  }
+
+  $("btn-settings-save").addEventListener("click", async () => {
+    const body = {
+      ask_timeout: parseFloat($("set-ask-timeout").value),
+      default_persona: $("set-persona").value,
+      subagent_fail_budget: parseInt($("set-fail-budget").value, 10),
+    };
+    if (isNaN(body.ask_timeout) || isNaN(body.subagent_fail_budget)) {
+      renderNotice("（批阅时限与熔断预算都必须是数字——）", "warn");
+      return;
+    }
+    const r = await fetch("/api/settings", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) {
+      const err = await r.json().catch(() => null);
+      renderNotice(`（颁行失败：${err?.detail || "未知原因"}）`, "warn");
+      return;
+    }
+    const data = await r.json();
+    askTimeoutMs = (Number(data.settings.ask_timeout) || 120) * 1000;
+    renderNotice("（内务府新规已颁行——）");
+  });
+
   /* ---- C2：面板数据（REST 拉取） ---- */
   let currentSessionId = null;
   let currentPersona = null;
@@ -1073,7 +1122,7 @@
       setLamp("on", "● 当值");
       flushQueued();             // H3：断线前暂存之旨，接驾后即刻代传
       refreshSessions(); refreshPersonas(); refreshTeam(); refreshMemory();
-      refreshSubagentLogs(); refreshMcp(); refreshModels();
+      refreshSubagentLogs(); refreshMcp(); refreshModels(); refreshSettings();
     };
     ws.onmessage = (m) => {
       try { onEvent(JSON.parse(m.data)); } catch { /* 坏消息直接丢弃 */ }
