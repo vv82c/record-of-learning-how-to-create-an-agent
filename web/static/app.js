@@ -18,6 +18,36 @@
         ledgerCache = $("ledger-cache"), ledgerTurn = $("ledger-turn"),
         ledgerTotal = $("ledger-total");   // E5：内库账房
 
+  /* ---- J2：昼/夜主题切换 ----
+     内联自举脚本已在样式表解析前定好 data-theme（显式选择 > 跟随系统）；
+     这里只管按钮文案与切换：一旦点过，localStorage 记下显式选择，不再跟系统漂移。 */
+  const btnTheme = $("btn-theme");
+  const THEME_KEY = "emperor-theme";
+
+  function themeLabel() {
+    return document.documentElement.dataset.theme === "light" ? "夜" : "昼";
+  }
+  function refreshThemeBtn() {
+    btnTheme.textContent = themeLabel();
+    btnTheme.title = `切换到${themeLabel() === "昼" ? "昼间" : "夜间"}主题`;
+  }
+  function applyTheme(t) {
+    document.documentElement.dataset.theme = t;
+    try { localStorage.setItem(THEME_KEY, t); } catch { /* 内存态兜底 */ }
+    refreshThemeBtn();
+  }
+  btnTheme.addEventListener("click", () => {
+    applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
+  });
+  refreshThemeBtn();
+  // 从未显式选过主题时，跟随系统实时切换；选过则以用户为准
+  if (!localStorage.getItem(THEME_KEY)) {
+    matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", (e) => {
+      document.documentElement.dataset.theme = e.matches ? "light" : "dark";
+      refreshThemeBtn();
+    });
+  }
+
   /* ---- C1：圣旨待批弹窗 ----
      hook_ask → 弹窗 + 倒计时。I3 起时限从 /api/settings 现读（内务府颁行后即时联动）；
      即使倒计时与服务器有偏差，服务端超时仍 fail-closed，前端只是尽力同步观感。 */

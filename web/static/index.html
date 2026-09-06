@@ -4,7 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Emperor Agent · 金銮殿</title>
-<link rel="stylesheet" href="style.css?v=i1">
+<link rel="stylesheet" href="style.css?v=i2">
+<script>
+  /* J2：主题自举——样式表解析前定好 data-theme，避免亮色用户先闪一帧暗色。
+     localStorage 的显式选择优先；没选过则跟随系统 prefers-color-scheme。 */
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem("emperor-theme"); } catch (e) { /* 隐私模式等：跟随系统 */ }
+    if (t !== "light" && t !== "dark") {
+      t = (window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark";
+    }
+    document.documentElement.dataset.theme = t;
+  })();
+</script>
 </head>
 <body>
 
@@ -22,6 +34,8 @@
     <span class="sub">大内总管 · 奉旨当值</span>
   </div>
   <div class="eave-right">
+    <!-- J2：昼/夜主题切换（localStorage 记忆，未选时跟随系统） -->
+    <button class="btn btn-theme" type="button" id="btn-theme" title="切换昼间 / 夜间主题"></button>
     <!-- 宫灯：当值/行走中 状态（B2 接内核事件切换） -->
     <span class="lamp on" id="lamp">● 当值</span>
     <button class="btn btn-quit" type="button">退朝</button>
@@ -187,6 +201,6 @@
 
 <!-- 资源带版本号：改版必换 v 参数，浏览器缓存不再咬住旧文件（B3 踩坑两次后的根治） -->
 <!-- 资源带版本号：改版必换 v 参数，浏览器缓存不再咬住旧文件（B3 踩坑两次后的根治） -->
-<script src="app.js?v=i1" defer></script>
+<script src="app.js?v=i2" defer></script>
 </body>
 </html>
