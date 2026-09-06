@@ -46,7 +46,7 @@ python main.py       # 终端版
 - **MCP 外部工具**：长连接复用子进程、断线自动重连
 - **Hooks 生命周期**：Event → Matcher → Handler → Decision 四层模型，内置安全策略（敏感文件管控/危险命令拦截/SSRF 防护）、审计日志、输出截断、Stop 质量门禁
 - **流式输出**：回答逐 token 上屏，工具调用碎片按 index 拼装
-- **多会话管理**：`/new` 开新会话、`/resume` 跨进程恢复；会话全保真存储
+- **多会话管理**：`/new` 开新会话、`/resume` 跨进程恢复、`/find` 按题名/内容检索、`/export` 导出 Markdown 话本；会话全保真存储，界面端支持删除/改名/搜索
 - **人格可配置**：`templates/persona/*.md` 模板化人设，`/persona` 运行时切换
 
 ## 🚀 快速开始

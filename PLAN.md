@@ -194,6 +194,13 @@
 - [x] **7.4 思维链流式转发**（✅ 2026-09-03，实测：deepseek-v4-flash 推理 174 条 reasoning 事件全程捕获，不写入 history、不计入回复；前端"圣思"折叠段答完自动收起）
   - 【完成标志】reasoning_start/reasoning 事件先于 reply_start；_consume_stream 读 delta.reasoning_content；reasoning 不污染 history 与 token 统计口径
 
+## 阶段八：会话管理与导出（P7 — 2026-09-06 立项，UI 侧见 UIPLAN.md 阶段 H）
+
+- [x] **8.1 SessionStore 会话管理**（✅ 2026-09-06，实测：delete_session 连文件/轮转备份/titles/custom 一并清除（复用 _path 的穿越防护），rename_session 写 custom_titles.json 标记手动题名，`_maybe_title` 见 custom 即弃写——手动命名不被自动题名覆盖；list_sessions(query) 题名+全文不区分大小写检索，轮转 .bak 不混入名册）
+  - 【完成标志】内核断言 10 项：检索大小写不敏感、改名后检索联动、导出含圣谕/奏对/奉差且无 tool 回执、删除后题名文件干净、备份不进检索
+- [x] **8.2 会话 REST 与终端命令**（✅ 2026-09-06，实测：/api/sessions?q= 检索、rename/delete（delete 对 ACTIVE_SESSIONS 中当值偏殿回 409——防"办差中的殿被拆后 runner 续写致文件静默重建"）、/api/sessions/export Markdown 下载；终端 /find 检索、/export [会话ID] 誊出话本到 exports/）
+  - 【完成标志】REST 错误分支全验（空题名 400 / 未知会话 404 / 当值删除 409 / 重复删除 404）；终端命中/未命中/缺省三分支全过
+
 ## 待评估想法（Backlog）
 
 > 只记录，不排期。升级为正式任务前不占用主线资源。
@@ -242,3 +249,4 @@
 | 2026-08-24 | 新增 [UIPLAN.md](UIPLAN.md)：Emperor Agent 前端计划书（阶段 A-D 共 12 项，FastAPI + 零构建前端 + pywebview 壳，只绑 127.0.0.1） | 软件化方向立项；UI 子系统单独成计划，本文件继续作为 agent_core 的路线基准 |
 | 2026-09-03 | 新增阶段七并完成（7.1~7.4 人性化交互，对标市面 agent）：save_memory 工具 + 压缩事件；会话自动命名（titles.json + session_title 事件）；另拟/改旨（send 抽出 _finish_round，regenerate/edit_last + sessions.truncate + 跳过门禁提醒）；思维链流式转发（reasoning_content → 事件，不入 history）。前端配合见 UIPLAN 阶段 G。内核断言 7 项 + 浏览器全流程 + 终端回归全过 | 用户确认按"记忆存在感 > 自动命名 > 另拟改旨 > 圣思"优先级落地；踩坑：推理模型小 max_tokens 全花在思维链上致命名正文为空——上限放宽；list_sessions 曾因缩进错误只返回一个会话，浏览器验收抓到 |
 | 2026-09-03 | 新增阶段六并完成（6.1 配置层 + 6.2 client 运行时重建，Backlog 首条转正）：model_profiles.py 多档案配置（.env 自动种子迁移、空 key 沿用旧值、model_profiles.json 先行入 .gitignore）；llm.py 改 apply_profile 可重建，runner/subagent/team/memory_rag/main 全部改 llm. 属性引用；context_window 随档案走。内核断言（切换/幂等/未配置引导/空 key 沿用）+ 终端回归全过 | 用户需求"模型配置放软件里"：配置界面属 UIPLAN 阶段F，内核侧的配置层与可重建 client 是其前置，一并落地 |
+| 2026-09-06 | 新增阶段八并完成（8.1 SessionStore 管理 + 8.2 会话 REST 与终端命令，UI 侧见 UIPLAN 阶段 H）：delete/rename/search/export 四能力进 SessionStore，rename 记 custom_titles 防 _maybe_title 覆盖；ACTIVE_SESSIONS 当值守卫（删除回 409）；/find /export 进终端。回归验收四轨全过（内核断言 10 项 / REST 8 项含错误分支 / 终端 4 分支 / 浏览器 14 项），顺手修复前端驻留条关闭钮监听器漏写 | 用户指令"回测第一档并更新文档推送"：回测即全量回归，无新 bug，仅补文档留痕 |

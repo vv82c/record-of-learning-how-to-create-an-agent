@@ -15,7 +15,7 @@
 
 - **工程化**：README、.gitignore（密钥防泄漏）、requirements.txt 锁版本、LLM 调用异常兜底与分类重试
 - **安全**：敏感文件读写管控（deny/ask 分级）、run_command 超时 + 进程树击杀 + Windows 黑名单、web_fetch 三道 SSRF 防线
-- **体验**：流式输出、`/todos` `/memory` `/compact` `/new` `/resume` `/persona` 斜杠命令
+- **体验**：流式输出、`/todos` `/memory` `/compact` `/new` `/resume` `/find` `/export` `/persona` 斜杠命令
 - **架构**：工具注册表（一处注册全端可用）、队友上下文自动压缩、MCP 长连接断线重连、
   长期记忆 RAG 检索（prompt 体积与记忆量解耦）、多会话管理、人格可配置
 - **容错与可观测**：子代理失败预算（连续 3 次失败熔断收兵）、执行日志落盘可归因、
