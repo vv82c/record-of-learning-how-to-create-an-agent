@@ -11,7 +11,7 @@ import json
 
 from agent_core import app_settings, todos as todos_mod
 from agent_core.console import ensure_utf8_console
-from agent_core.config import MCP_CONFIG_PATH, PERSONA_DIR, PROJECT_ROOT
+from agent_core.config import EXPORTS_DIR, MCP_CONFIG_PATH, PERSONA_DIR, PROJECT_ROOT
 from agent_core.hooks import confirm_hook_decision
 from agent_core.mcp_client import connect_all, list_mcp_servers
 from agent_core.memory import MEMORY
@@ -60,7 +60,7 @@ def main():
     connect_all(MCP_CONFIG_PATH)
 
     print("累积式 Agent（tools + memory + skills + subagent + team + mcp + hooks）")
-    print("输入 q/quit/exit 退出；/team 队友；/inbox 收件箱；/mcp 工具；/todos 计划；/memory 记忆；/compact 压缩；/new 新会话；/resume 恢复会话；/find 检索会话；/export 誊出话本；/persona 人格；/settings 设置")
+    print("输入 q/quit/exit 退出；/team 队友；/inbox 收件箱；/mcp 工具；/todos 计划；/memory 记忆；/compact 压缩；/new 新会话；/mi 密折（临时对话）；/resume 恢复会话；/find 检索会话；/export 誊出话本；/persona 人格；/settings 设置")
     runner = SessionRunner(on_event=terminal_printer, confirmer=confirm_hook_decision)
     print(f"当前会话：{runner.session_id}")
 
@@ -101,6 +101,13 @@ def main():
         if command == "/new":
             sid = runner.new_session()
             print(f"[新会话已开启] {sid}（旧会话可用 /resume 找回）\n")
+            continue
+        # 阶段十三：密折——临时对话（不入名册、不留记忆、退出即焚；/export 可手动誊出）
+        if command in ("/mi", "/secret"):
+            runner = SessionRunner(on_event=terminal_printer, confirmer=confirm_hook_decision,
+                                   ephemeral=True)
+            print(f"[密折开启] 会话 {runner.session_id}（不入名册 · 不留记忆 · 退出即焚）")
+            print("  边界：工具照常受圣旨管控，审计日志照记；/export 手动誊出，/new /resume 转回正式殿。\n")
             continue
         # 注意带参数的命令要用前缀匹配：== "/resume" 在输入 "/resume <id>" 时永远不成立
         # （4.5 端到端实测踩坑：命令被当成聊天发给模型，模型自己翻文件"假装"恢复了）
@@ -170,12 +177,16 @@ def main():
         if command == "/export" or command.startswith("/export "):
             parts = command.split()
             target = parts[1] if len(parts) > 1 else runner.session_id
-            md = SESSIONS.export_markdown(target)
+            if runner.ephemeral and target == runner.session_id:
+                # 阶段十三：密折誊出——从内存史渲染（逃生门，皇上钦定保留）
+                md = SESSIONS.render_history_markdown(runner.history, target, "密折")
+            else:
+                md = SESSIONS.export_markdown(target)
             if md is None:
                 print(f"[无法导出] 会话 {target} 尚无记录（传过旨才有话本可誊）")
                 print()
                 continue
-            out_dir = PROJECT_ROOT / "exports"
+            out_dir = EXPORTS_DIR
             out_dir.mkdir(exist_ok=True)
             out = out_dir / f"{target}.md"
             out.write_text(md, encoding="utf-8")

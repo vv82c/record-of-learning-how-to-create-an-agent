@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Emperor Agent · 金銮殿</title>
-<link rel="stylesheet" href="style.css?v=i2">
+<link rel="stylesheet" href="style.css?v=k1">
 <script>
   /* J2：主题自举——样式表解析前定好 data-theme，避免亮色用户先闪一帧暗色。
      localStorage 的显式选择优先；没选过则跟随系统 prefers-color-scheme。 */
@@ -54,6 +54,7 @@
       </ul>
       <div class="hall-actions">
         <button class="btn btn-mini" type="button" id="btn-new-hall">＋ 开新殿</button>
+        <button class="btn btn-mini" type="button" id="btn-mihe" title="临时对话：不入名册、不留记忆、关窗即焚（工具照常受圣旨管控）">＋ 密折</button>
         <button class="btn btn-mini" type="button" id="btn-export" title="把当前偏殿的对话誊成 Markdown 话本下载">⤓ 誊出话本</button>
       </div>
     </section>
@@ -186,6 +187,11 @@
   <span class="ledger-item">累计 <span id="ledger-total">—</span></span>
 </div>
 
+<!-- ═══════════ 阶段十三：密折横幅（临时对话状态常驻提示，session 事件驱动显隐） ═══════════ -->
+<div class="mi-banner" id="mi-banner" hidden>
+  📜 密折交谈中——不入名册 · 不留记忆 · 关窗即焚（工具照常受圣旨管控，审计日志照记）
+</div>
+
 <!-- ═══════════ H1：要务驻留条（重试/门禁/报错不再被流式内容刷走，点 × 或开新一轮才收） ═══════════ -->
 <div class="sticky-notice" id="sticky-notice" hidden>
   <span id="sticky-notice-text"></span>
@@ -201,6 +207,6 @@
 
 <!-- 资源带版本号：改版必换 v 参数，浏览器缓存不再咬住旧文件（B3 踩坑两次后的根治） -->
 <!-- 资源带版本号：改版必换 v 参数，浏览器缓存不再咬住旧文件（B3 踩坑两次后的根治） -->
-<script src="app.js?v=i2" defer></script>
+<script src="app.js?v=k1" defer></script>
 </body>
 </html>

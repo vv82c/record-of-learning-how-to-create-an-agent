@@ -208,26 +208,17 @@ class SessionStore:
         lines.append("用 /resume <会话ID> 恢复继续；/find <关键词> 检索；/export <会话ID> 誊出话本。")
         return "\n".join(lines)
 
-    def export_markdown(self, session_id: str) -> str | None:
-        """H2：把会话誊成可读的 Markdown 话本（用户圣谕 + 助手奏对 + 工具奉差一行带过）。
+    @staticmethod
+    def render_history_markdown(history: list, session_id: str, title: str = "") -> str:
+        """阶段十三：从内存 history 渲染 Markdown 话本（export_markdown 与密折誊出共用）。
 
-        tool 回执多为机器输出，整卷导出以对话可读为主，只记"调了什么工具"不记原始回执。
-        会话文件懒创建，尚无记录时返回 None。
+        密折会话没有落盘文件，誊出只能走内存史；正式殿的文件导出也复用同一渲染，
+        保证两种来源的話本格式逐字节一致。
         """
-        path = self._path(session_id)
-        if not path.exists():
-            return None
-        title = self.get_title(session_id)
         out = [f"# 传旨记录 · {title or session_id}", "",
                f"- 会话ID：`{session_id}`",
                f"- 导出时间：{datetime.now():%Y-%m-%d %H:%M}", "", "---", ""]
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                msg = json.loads(line)["msg"]
-            except (json.JSONDecodeError, KeyError):
-                continue
+        for msg in history:
             role = msg.get("role")
             content = str(msg.get("content") or "").strip()
             if role == "user":
@@ -242,6 +233,26 @@ class SessionStore:
                     out.append("")
             # role == "tool"：回执不进话本
         return "\n".join(out)
+
+    def export_markdown(self, session_id: str) -> str | None:
+        """H2：把会话誊成可读的 Markdown 话本（用户圣谕 + 助手奏对 + 工具奉差一行带过）。
+
+        tool 回执多为机器输出，整卷导出以对话可读为主，只记"调了什么工具"不记原始回执。
+        会话文件懒创建，尚无记录时返回 None。渲染逻辑在 render_history_markdown（共享）。
+        """
+        path = self._path(session_id)
+        if not path.exists():
+            return None
+        title = self.get_title(session_id)
+        history = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                history.append(json.loads(line)["msg"])
+            except (json.JSONDecodeError, KeyError):
+                continue
+        return self.render_history_markdown(history, session_id, title)
 
 
 def _rotate_session_if_needed(path: Path) -> None:

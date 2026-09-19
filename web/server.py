@@ -36,7 +36,7 @@ from pydantic import BaseModel
 from urllib.parse import quote
 
 from agent_core import app_settings, llm, model_profiles, todos as todos_mod
-from agent_core.config import MCP_CONFIG_PATH, PERSONA_DIR, SUBAGENT_LOG_DIR
+from agent_core.config import EXPORTS_DIR, MCP_CONFIG_PATH, PERSONA_DIR, SUBAGENT_LOG_DIR
 from agent_core.console import ensure_utf8_console
 from agent_core.mcp_client import connect_all, list_mcp_servers
 from agent_core.memory import MEMORY
@@ -318,6 +318,23 @@ async def ws_endpoint(websocket: WebSocket):
                     ACTIVE_SESSIONS.add(sid)
                     out_queue.put_nowait({"type": "session", "id": sid, "fresh": True})
                     out_queue.put_nowait({"type": "todos", "todos": todos_mod.TODOS})
+            elif kind == "ephemeral":
+                # 阶段十三：密折——换一个不留痕的临时 runner（不入名册、关窗即焚）
+                if not busy.is_set():
+                    ACTIVE_SESSIONS.discard(runner.session_id)   # 旧殿除名
+                    runner = SessionRunner(on_event=on_event, confirmer=confirmer, ephemeral=True)
+                    out_queue.put_nowait({"type": "session", "id": runner.session_id,
+                                          "fresh": True, "ephemeral": True})
+            elif kind == "export":
+                # 阶段十三：密折誊出——从内存史渲染落盘 exports/（正式殿誊出走 REST 下载）
+                if runner.ephemeral:
+                    md = SESSIONS.render_history_markdown(runner.history, runner.session_id, "密折")
+                    EXPORTS_DIR.mkdir(exist_ok=True)
+                    out = EXPORTS_DIR / f"{runner.session_id}.md"
+                    out.write_text(md, encoding="utf-8")
+                    out_queue.put_nowait({"type": "exported", "file": out.name})
+                else:
+                    out_queue.put_nowait({"type": "error", "message": "正式殿誊出请用下载按钮（REST 导出）"})
             elif kind == "resume":
                 if not busy.is_set():
                     target = str(msg.get("id", ""))

@@ -252,6 +252,24 @@
   - 【完成标志】内核断言 13 项全绿：curl/大写 CURL/Invoke-WebRequest/urllib/certutil 五类出访命中 ask(confirm)、`echo hello` 不误伤、`git commit` 仍走高危 ask、`type .env` 仍走敏感 ask、危险命令仍 deny、子代理 curl 自动拒绝（阶段十 fail-closed 语义衔接）、准奏后 `curl --version` 照常执行
 - [x] **12.2 验证与收尾**（✅ 2026-09-19，浏览器真跑：传旨"用 curl 访问 http://192.168.1.1"→ 模型拼出 `curl -s -i -m 10 http://192.168.1.1 | head -50` 照样被子串匹配逮住、圣旨弹窗亮"网络出访"文案（昼间素绢主题目检）、Esc 驳回链路完整、主对话诚实回禀、自动题名「访问路由器请求被拦截」；SUMMARY 补纵深条目；根治路径（容器沙箱）留 Backlog 不动）
 
+## 阶段十三：密折——临时对话不留痕（P12 — 2026-09-19 立项，对标千问/ChatGPT 临时聊天，"第一档人性化"延续）
+
+> 需求：临时对话不进偏殿名册、不写长期记忆，关窗即焚。架构红利：Web 端 runner 本就随
+> WebSocket 连接生灭，"关窗即焚"天然成立——只需把"写"的口子全部堵住。
+> 皇上钦定两条：① 审计日志与子代理执行日志照旧（安全设施不随密折消失，界面写明）；
+> ② 密折给"誊出话本"逃生门（手动留档）。设计边界：读记忆照旧（管写不管读）；
+> 工具照常受圣旨管控——密折≠沙箱；todos 为跨会话草稿状态照旧。
+
+- [x] **13.1 内核 ephemeral 标志**（✅ 2026-09-19，SessionRunner(ephemeral=True)：会话 id 用 `mi-` 前缀不落盘；remember() 短路（会话文件与 history.jsonl 双不写）；轮末自动压缩跳过（防沉淀进 MEMORY.md）；_maybe_title 跳过；regenerate/edit_last 的 truncate 跳过；new_session/resume 即转正回常规模式）
+  - 【完成标志】内核断言 A1~A6/B1~B3/D1~D3：对话后无 mi- 文件、history.jsonl 零写入（内存史完整——焚的是盘不是内存）、压缩与题名 spy 未触发（常规轮 spy 对照触发）、truncate 未触发、开新殿/resume 均转正
+- [x] **13.2 密折禁写工具**（✅ 2026-09-19，dispatch_tool 拦截 save_memory / spawn_teammate，回 Error 前缀文案"密折不立言"让模型如实转告；审计/子代理日志/圣旨弹窗照旧）
+  - 【完成标志】断言 C1~C3：密折态 save_memory/spawn_teammate 得 Error、常规态 save_memory 不受影响（spy 对照）；Z1 全程 MEMORY.md 零变化
+- [x] **13.3 誊出逃生门**（✅ 2026-09-19，sessions.py 抽公开 `render_history_markdown(history, ...)` 共享渲染，export_markdown 内部复用；终端 /export 对密折从内存史誊出 exports/mi-*.md；Web 密折态"誊出话本"走 ws export 分支落盘同目录并回 exported 事件）
+  - 【完成标志】断言 E1~E5：密折话本含圣谕/奏对/奉差不含 tool 回执；正式殿导出与重构前算法逐字节一致（旧算法内联重算比对）
+- [x] **13.4 双入口接线**（✅ 2026-09-19，终端 /mi 命令（/secret 同义）+ /export 支持密折 + 帮助行更新；Web ws 增 ephemeral/export 分支（busy 守卫、旧殿 ACTIVE_SESSIONS 除名）；前端"＋ 密折"按钮 + 密折横幅（双主题样式）+ 输入框占位随态切换 + 密折态誊出走 ws；版本号 v=i2→v=k1）
+  - 【完成标志】浏览器真跑：入密折横幅亮→"记住朕喜欢读史书"save_memory 被拒且老奴如实回禀"开正式偏殿再补录"→current_time 照常✓→MEMORY.md/history.jsonl/会话目录三处零残留→誊出 exports/mi-*.md 含圣谕奉差→开新殿横幅收→关窗即焚零清理
+- [x] **13.5 验证与收尾**（✅ 2026-09-19，内核断言 **21 项全绿**；终端冒烟 /mi→/export→/new 转正链路全过；REST 冒烟 health 200；exports/ 未入 gitignore——誊出件算用户资产，测试产物手动清理）
+
 ## 待评估想法（Backlog）
 
 > 只记录，不排期。升级为正式任务前不占用主线资源。
@@ -305,3 +323,4 @@
 | 2026-09-19 | 新增阶段十并完成（10.1~10.4，Backlog"子代理绕过 Hook 链"转正）：Hook 链从 runner.dispatch_tool 下沉至 registry.execute_guarded 统一守卫入口，主循环/子代理/队友三端一次收编；ask 无确认者 fail-closed 降级为 deny；审计条目增 sender；熔断计数兼容 Hook 拒绝。内核断言 25 项全绿 + 终端/REST 冒烟 + 浏览器真跑（小黄门读 .env 被 fail-closed 拦截零泄漏、主循环圣旨弹窗 Esc 驳回无回归） | 审计与策略防护对子代理/队友全盲区（通传小黄门可 type .env 绕主循环 deny）；收编后消除未来双触发隐患，主循环行为零变化由断言取证 |
 | 2026-09-19 | 新增阶段十一并完成（11.1~11.4，Backlog"主循环单轮异常无兜底"转正）：11.1 协议保对（坏 JSON 参数就地回 Error tool 消息，历史永无悬空）；11.2 轮级兜底（_finish_round 安全网：悬空补对→error 事件→说明入史→正常 done，入口级网护序备段，落点自身全程防御）；11.3 终端护栏（REPL 包 try/except 进程不死）。内核断言 16 项全绿（fake call_llm 全链路）+ 终端/REST 冒烟 + 浏览器正常轮真跑；断言抓到并修正 _assistant_say"先改史后落盘"的半截状态问题 | 模型吐坏参数（流式 arguments 截断）/MCP 与磁盘意外穿透主循环：终端崩进程（4.5 事故形态）、Web 会话悬空后轮轮 400——一个坏参数放大成一个会话的死刑 |
 | 2026-09-19 | 新增阶段十二并完成（12.1~12.2，Backlog"curl 绕过 SSRF"第一层）：ToolPolicyHook 增 EGRESS_PATTERNS 出访模式表（16 模式），命中走 ask(level=confirm)，无确认者语境 fail-closed 自动拒绝；根治（容器沙箱）另立项。内核断言 13 项全绿 + 浏览器真跑（curl 摸 192.168.1.1 被圣旨拦下、Esc 驳回、零实际出网） | SSRF 防护只护 web_fetch 窄口子，run_command 出网工具可直达内网/云元数据；先上便宜兜底把把关人换成皇上，黑名单拦不住变体的边界如实留痕 |
+| 2026-09-19 | 新增阶段十三并完成（13.1~13.5，密折/临时对话）：runner ephemeral 标志堵全部写入口子（remember/压缩/题名/truncate），禁写 save_memory/spawn_teammate，誊出逃生门共享渲染（export_markdown 重构逐字节一致），终端 /mi + Web 密折按钮/横幅双主题。内核断言 21 项全绿 + 终端冒烟 + 浏览器真跑（记住被拒如实转告、三处零落盘、誊出有件、关窗即焚零清理） | 皇上体验千问临时对话后提出；架构红利 runner 随连接生灭，关窗即焚天然成立，测试流程也直接受益 |

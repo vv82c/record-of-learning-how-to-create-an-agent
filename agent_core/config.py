@@ -17,3 +17,4 @@ TEAM_DIR = PROJECT_ROOT / ".team"
 INBOX_DIR = TEAM_DIR / "inbox"
 COMPACT_PROMPT_PATH = TEMPLATES_DIR / "agent" / "compact_prompt.md"
 PERSONA_DIR = TEMPLATES_DIR / "persona"
+EXPORTS_DIR = PROJECT_ROOT / "exports"   # H2/阶段十三：话本誊出目录（终端 /export 与密折誊出共用）

@@ -553,6 +553,12 @@
         resetLedger();           // E5：换殿账本归零（内核已重置，前端观感对齐）
         editMode = false;        // G3：换殿退出改旨模式
         currentSessionId = ev.id;
+        ephemeralMode = !!ev.ephemeral;   // 阶段十三：密折态（横幅显隐 + 誊出走 ws）
+        $("mi-banner").hidden = !ephemeralMode;
+        $("input").placeholder = ephemeralMode
+          ? "密折传旨……（Enter 传旨；不入名册、不留记忆、关窗即焚）"
+          : "传旨……（Enter 传旨，Shift+Enter 换行）";
+        if (ev.ephemeral) renderNotice("（已入密折——言不入档，事不留忆，关窗即焚）");
         if (ev.resumed) {
           hasConversation = ev.messages > 0;
           renderNotice(`（已入偏殿 ${ev.id}，共 ${ev.messages} 条旧话，可续谈）`);
@@ -575,6 +581,9 @@
       case "session_title":   // G2：本殿题名
         renderNotice(`（此殿题名：「${ev.title}」）`);
         refreshSessions();
+        break;
+      case "exported":        // 阶段十三：密折誊出落盘
+        renderNotice(`（密折话本已誊出 exports/${ev.file}——皇上可自行留存）`);
         break;
       case "todos":           renderTodos(ev.todos); break;   // B3：差事灯笼
       case "turn_start":      showThinking(); break;          // E2.1：拟旨占位
@@ -880,6 +889,7 @@
   /* ---- C2：面板数据（REST 拉取） ---- */
   let currentSessionId = null;
   let currentPersona = null;
+  let ephemeralMode = false;   // 阶段十三：是否处于密折（session 事件驱动）
 
   /* ---- E1.4：空状态引导——只在"全新且还没开谈"的会话展示示例卡 ----
      新会话（fresh/断线重连/首次连接）与 0 条旧话的恢复会话显示；
@@ -1005,9 +1015,14 @@
     searchTimer = setTimeout(refreshSessions, 300);
   });
 
-  /* H2：誊出话本——当前偏殿导出为 Markdown 下载 */
+  /* H2：誊出话本——当前偏殿导出为 Markdown 下载；密折态走 ws 落盘 exports/（阶段十三） */
   $("btn-export").addEventListener("click", async () => {
     if (!currentSessionId) { renderNotice("（本殿尚未开口传旨，无话本可誊——）", "warn"); return; }
+    if (ephemeralMode) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: "export" }));   // 结果经 exported 事件提示
+      return;
+    }
     const r = await fetch(`/api/sessions/export?id=${encodeURIComponent(currentSessionId)}`);
     if (!r.ok) {
       const err = await r.json().catch(() => null);
@@ -1127,6 +1142,12 @@
     ws.send(JSON.stringify({ type: "new_session" }));
     renderNotice("（已开新殿——）");
     refreshSessions();
+  });
+
+  // 阶段十三：密折按钮——入临时对话（session 事件带 ephemeral=true 驱动横幅与誊出分支）
+  $("btn-mihe").addEventListener("click", () => {
+    if (busy || !ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "ephemeral" }));
   });
 
   // E1.4：示例圣旨卡——点击即按正常传旨流程发出（sendText 成功才收起，失败保留）

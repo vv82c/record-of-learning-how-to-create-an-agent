@@ -16,6 +16,7 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -251,17 +252,22 @@ def _emit_to(on_event, event: dict) -> None:
 class SessionRunner:
     """一次对话会话的驱动器：send(用户文本) 跑完"LLM→工具→LLM"循环并返回最终回复。"""
 
-    def __init__(self, on_event=None, confirmer=None, persona: str | None = None):
+    def __init__(self, on_event=None, confirmer=None, persona: str | None = None,
+                 ephemeral: bool = False):
         self._on_event = on_event
         self._confirmer = confirmer or confirm_hook_decision
         # 阶段九：默认人格走内务府设置（settings.json 覆盖 .env 种子），每次建连接现读
         self.persona = persona or app_settings.load().get("default_persona") or DEFAULT_PERSONA
         self.history: list[dict] = []
-        self.session_id = SESSIONS.new_session()
+        # 阶段十三：密折——不入名册、不留记忆、关窗即焚。id 用 mi- 前缀且不走 SESSIONS
+        # 登记（文件懒创建，remember 短路后自然无文件）；写入口子见 remember/压缩/题名。
+        self.ephemeral = ephemeral
+        self.session_id = (f"mi-{datetime.now():%Y%m%d-%H%M%S}" if ephemeral
+                           else SESSIONS.new_session())
         self._stop = threading.Event()
         self._usage = self._fresh_usage()   # E5 内库账房：本次连接的用度账本
         self._titled = False                # G2：本会话是否已命名
-        self._emit({"type": "session", "id": self.session_id})
+        self._emit({"type": "session", "id": self.session_id, "ephemeral": ephemeral})
 
     @staticmethod
     def _fresh_usage() -> dict:
@@ -286,21 +292,24 @@ class SessionRunner:
 
     # ---- 对外：会话操作（终端斜杠命令与 UI 面板共用）----
     def new_session(self) -> str:
+        self.ephemeral = False   # 密折开新殿即转正
         self.session_id = SESSIONS.new_session()
         self.history = []
         self._usage = self._fresh_usage()   # E5：开新殿账本归零
         self._titled = False
         todos_mod.clear_todos()
-        self._emit({"type": "session", "id": self.session_id, "fresh": True})
+        self._emit({"type": "session", "id": self.session_id, "fresh": True, "ephemeral": False})
         return self.session_id
 
     def resume(self, session_id: str) -> int:
         loaded = SESSIONS.load(session_id)
+        self.ephemeral = False   # 密折里 /resume 旧殿即转正
         self.session_id = session_id
         self.history = loaded
         self._usage = self._fresh_usage()   # E5：resume 归零重计（旧轮次成本未重放，诚实口径）
         self._titled = bool(SESSIONS.get_title(session_id))   # 旧殿已有题名则不再起
-        self._emit({"type": "session", "id": session_id, "resumed": True, "messages": len(loaded)})
+        self._emit({"type": "session", "id": session_id, "resumed": True,
+                    "messages": len(loaded), "ephemeral": False})
         return len(loaded)
 
     def switch_persona(self, name: str) -> None:
@@ -308,6 +317,8 @@ class SessionRunner:
 
     def compact(self) -> tuple[int, int]:
         before = len(self.history)
+        if self.ephemeral:   # 密折不沉淀：压缩会写 MEMORY.md，违背"不留记忆"
+            return before, before
         self.history = memory_compact.compact_history(self.history, llm.client, llm.MODEL, MEMORY, force=True)
         return before, len(self.history)
 
@@ -340,7 +351,8 @@ class SessionRunner:
             return ""
         self.history = self.history[:idx + 1]
         try:
-            SESSIONS.truncate(self.session_id, len(self.history))
+            if not self.ephemeral:   # 密折无会话文件，truncate 跳过
+                SESSIONS.truncate(self.session_id, len(self.history))
             return self._finish_round()
         except Exception as exc:
             return self._crash_landing(exc)
@@ -353,7 +365,8 @@ class SessionRunner:
             return self.send(new_text)
         self.history = self.history[:idx]
         try:
-            SESSIONS.truncate(self.session_id, len(self.history))
+            if not self.ephemeral:   # 密折无会话文件，truncate 跳过
+                SESSIONS.truncate(self.session_id, len(self.history))
             user_message = {"role": "user", "content": new_text}
             self.history.append(user_message)
             self.remember(user_message)
@@ -436,8 +449,8 @@ class SessionRunner:
 
         H1：用户手动改过名的会话（custom_titles）不参与自动题名——皇上的朱笔大过老奴的题名。
         """
-        if self._titled or not reply.strip() or llm.client is None:
-            return
+        if self._titled or not reply.strip() or llm.client is None or self.ephemeral:
+            return   # 密折不题名：titles.json 也是记录（阶段十三）
         if SESSIONS.is_custom(self.session_id):
             self._titled = True   # 本连接内不再重试
             return
@@ -467,6 +480,8 @@ class SessionRunner:
         _emit_to(self._on_event, event)
 
     def remember(self, message: dict) -> None:
+        if self.ephemeral:
+            return   # 密折：会话文件与 history.jsonl 双不写（阶段十三）
         SESSIONS.append(self.session_id, message)
         MEMORY.append_history(message)
 
@@ -509,6 +524,10 @@ class SessionRunner:
         在 registry.execute_guarded（阶段十三端收编）；这里只补主循环会话层的
         todos 联动事件，并注入 UI 的确认回调（圣旨弹窗 / 终端 input）。
         """
+        if self.ephemeral and block.name in ("save_memory", "spawn_teammate"):
+            # 阶段十三：密折不立言、不设班底——两个"写盘留痕"的工具直接拒
+            return ("Error: 密折模式下不可使用该工具（临时交谈不入名册、不留记忆、不召固定队友）。"
+                    "请如实向皇上说明，或请皇上开正式偏殿后再办。")
         output = execute_guarded(
             block.name, block.input, sender="lead",
             on_event=self._emit, confirmer=self._confirmer,
@@ -590,10 +609,11 @@ class SessionRunner:
                     continue
                 reply = stop_ctx.get("reply", reply)
                 # ---- 记忆压缩（history 超阈值时沉淀）----
-                _before = len(self.history)
-                self.history = memory_compact.compact_history(self.history, llm.client, llm.MODEL, MEMORY)
-                if len(self.history) < _before:   # G1：压缩对用户可见
-                    self._emit({"type": "memory_compacted", "removed": _before - len(self.history)})
+                if not self.ephemeral:   # 密折不沉淀：压缩会把旧对话写进 MEMORY.md（阶段十三）
+                    _before = len(self.history)
+                    self.history = memory_compact.compact_history(self.history, llm.client, llm.MODEL, MEMORY)
+                    if len(self.history) < _before:   # G1：压缩对用户可见
+                        self._emit({"type": "memory_compacted", "removed": _before - len(self.history)})
                 if todos_mod.TODOS:
                     unfinished = [t for t in todos_mod.TODOS if t["status"] != "completed"]
                     if unfinished:
