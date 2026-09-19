@@ -183,7 +183,10 @@ def main():
             print()
             continue
 
-        runner.send(user_input)
+        try:
+            runner.send(user_input)
+        except Exception as exc:  # 阶段十一（终端护栏）：内核意外不崩进程，与 Web 线程兜底同级
+            print(f"\n[内核异常，本轮已收束，会话可继续] {type(exc).__name__}: {exc}\n")
 
 
 if __name__ == "__main__":

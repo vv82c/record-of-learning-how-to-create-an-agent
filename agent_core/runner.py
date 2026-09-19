@@ -316,8 +316,12 @@ class SessionRunner:
         self._stop.clear()
         user_message = {"role": "user", "content": user_text}
         self.history.append(user_message)
-        self.remember(user_message)
-        return self._finish_round()
+        try:
+            self.remember(user_message)
+            return self._finish_round()
+        except Exception as exc:
+            # 阶段十一（入口级网）：炸在序备段（remember，如 4.5 的递归事故位置）也能收束
+            return self._crash_landing(exc)
 
     # ---- G3：另拟 / 改旨 ----
     def _last_real_user_index(self) -> int | None:
@@ -335,8 +339,11 @@ class SessionRunner:
         if idx is None:
             return ""
         self.history = self.history[:idx + 1]
-        SESSIONS.truncate(self.session_id, len(self.history))
-        return self._finish_round()
+        try:
+            SESSIONS.truncate(self.session_id, len(self.history))
+            return self._finish_round()
+        except Exception as exc:
+            return self._crash_landing(exc)
 
     def edit_last(self, new_text: str) -> str:
         """改旨：撤回最后一条用户消息（连同其回复），换成新文本重跑。"""
@@ -345,17 +352,24 @@ class SessionRunner:
         if idx is None:
             return self.send(new_text)
         self.history = self.history[:idx]
-        SESSIONS.truncate(self.session_id, len(self.history))
-        user_message = {"role": "user", "content": new_text}
-        self.history.append(user_message)
-        self.remember(user_message)
-        return self._finish_round()
+        try:
+            SESSIONS.truncate(self.session_id, len(self.history))
+            user_message = {"role": "user", "content": new_text}
+            self.history.append(user_message)
+            self.remember(user_message)
+            return self._finish_round()
+        except Exception as exc:
+            return self._crash_landing(exc)
 
     def _finish_round(self) -> str:
         """send/regenerate/edit_last 共用的收束：计时跑主循环、发 done、起标题。"""
         self._turn_tokens = None   # E2.3：本轮全部 LLM 调用的 tokens 总量（供应商提供时才有值）
         started = time.perf_counter()
-        reply = self._run_loop()
+        try:
+            reply = self._run_loop()
+        except Exception as exc:
+            # 阶段十一（轮级兜底）：单轮崩溃降级为"报错后继续会话"——进程不死、会话不废
+            reply = self._crash_landing(exc)
         self._emit({
             "type": "done", "reply": reply,
             "duration_ms": round((time.perf_counter() - started) * 1000, 1),
@@ -366,6 +380,55 @@ class SessionRunner:
         })
         self._maybe_title(reply)
         return reply
+
+    # ---- 阶段十一：轮级异常兜底 ----
+    def _crash_landing(self, exc: Exception) -> str:
+        """轮级兜底落点：发 error 事件 → 补历史悬空 → 拼说明入史，返回收束文案。
+
+        网自身全程防御：兜底路径再炸（如 4.5 那种 remember 递归）也不能击穿——
+        error 事件先发，落盘类动作各自包 try，最坏情况只是会话文件来不及修正。
+        """
+        self._emit({"type": "error", "message":
+                    f"\n[内核轮级异常，本轮已安全收束，会话可继续]: {type(exc).__name__}: {exc}\n"})
+        try:
+            self._patch_dangling_tool_calls(f"（内部异常：{type(exc).__name__}: {exc}）")
+        except Exception:
+            pass
+        text = f"（本轮内部出错已收束：{type(exc).__name__}: {exc}。会话可继续，请重新传旨或另拟。）"
+        try:
+            self._assistant_say(text)
+        except Exception:
+            pass
+        return text
+
+    def _patch_dangling_tool_calls(self, note: str) -> int:
+        """给 history 尾部悬空的 tool_calls 补配对 tool 消息（含会话文件），返回补了几条。
+
+        悬空只可能出现在尾部：工具消息在批后立即写入，崩溃中断的正是"没写完的批"。
+        漏配对会让下一轮请求被 API 400 打回（协议不变量：role=tool 必须紧跟
+        带 tool_calls 的 assistant），所以收束前必须补齐。
+        """
+        idx = len(self.history) - 1
+        while idx >= 0 and self.history[idx].get("role") == "tool":
+            idx -= 1
+        if idx < 0:
+            return 0
+        tail = self.history[idx]
+        tool_calls = tail.get("tool_calls") or []
+        if tail.get("role") != "assistant" or not tool_calls:
+            return 0
+        answered = {m.get("tool_call_id") for m in self.history[idx + 1:]
+                    if m.get("role") == "tool"}
+        patched = 0
+        for tc in tool_calls:
+            tc_id = tc.get("id")
+            if tc_id and tc_id not in answered:
+                msg = {"role": "tool", "tool_call_id": tc_id,
+                       "content": f"Error: 工具批执行中断，未获得结果。{note[:200]}"}
+                self.history.append(msg)
+                self.remember(msg)
+                patched += 1
+        return patched
 
     # ---- G2：会话自动命名 ----
     def _maybe_title(self, reply: str) -> None:
@@ -408,11 +471,36 @@ class SessionRunner:
         MEMORY.append_history(message)
 
     def _assistant_say(self, text: str) -> None:
-        """非流式产出的回复（Hook 短路 / 拦截文案）：入史 + 发 reply 事件。"""
+        """非流式产出的回复（Hook 短路 / 拦截文案 / 兜底说明）：入史 + 发 reply 事件。
+
+        先落盘再改内存史：remember 失败时 history 尾部不残留未持久化的半截状态。
+        """
         assistant_message = {"role": "assistant", "content": text}
-        self.history.append(assistant_message)
         self.remember(assistant_message)
+        self.history.append(assistant_message)
         self._emit({"type": "reply", "text": text})
+
+    @staticmethod
+    def _parse_tool_blocks(raw_tool_calls, results_map: dict) -> list:
+        """逐个解析 tool_calls 为执行块；解析失败的就地写一条 Error tool 消息并跳过。
+
+        阶段十一（协议保对）：arguments 是流式按 index 拼回的字符串，max_tokens 截断
+        或模型抽风都会产出残缺 JSON——若在这里崩掉，已入史的 assistant 消息就成了
+        悬空调用，下一轮请求会被 API 400 打回。坏参数以 Error tool 消息回给模型，
+        让它修正后重试，同批其余调用不受牵连。
+        """
+        blocks = []
+        for tc in raw_tool_calls:
+            try:
+                block = to_tool_call(tc)
+                if not isinstance(block.input, dict):
+                    raise ValueError(f"工具参数应为 JSON 对象，实为 {type(block.input).__name__}")
+            except Exception as exc:
+                results_map[tc.id] = (f"Error: 工具参数解析失败，本次调用未执行"
+                                      f"（{type(exc).__name__}: {exc}）。请修正参数后重试。")
+                continue
+            blocks.append(block)
+        return blocks
 
     def dispatch_tool(self, block) -> str:
         """带 Hook 链的工具执行。
@@ -516,11 +604,11 @@ class SessionRunner:
                 return reply
 
             # ---- 工具调用：普通工具顺序执行，dispatch_subagent 并发 ----
-            tool_blocks = [to_tool_call(tc) for tc in message.tool_calls]
+            # 阶段十一（协议保对）：坏参数就地回 Error tool 消息，同批其余照常执行
+            results_map: dict[str, str] = {}
+            tool_blocks = self._parse_tool_blocks(message.tool_calls, results_map)
             dispatch_blocks = [b for b in tool_blocks if b.name == "dispatch_subagent"]
             other_blocks = [b for b in tool_blocks if b.name != "dispatch_subagent"]
-
-            results_map: dict[str, str] = {}
             for block in other_blocks:
                 results_map[block.id] = self.dispatch_tool(block)
 
@@ -550,8 +638,10 @@ class SessionRunner:
                                 "summary": summary[:300]})
                     results_map[block.id] = summary  # 单派遣分支：修复前误写 block_id（并发分支复制粘贴漏改）
 
-            for b in tool_blocks:
-                tool_message = {"role": "tool", "tool_call_id": b.id, "content": results_map[b.id]}
+            # 按 model 给出的顺序回填全部 tool 结果——含解析失败的坏 id（协议保对：
+            # results_map 里此刻覆盖了每一个 tool_call_id，缺一条都是悬空）
+            for tc in message.tool_calls:
+                tool_message = {"role": "tool", "tool_call_id": tc.id, "content": results_map[tc.id]}
                 self.history.append(tool_message)
                 self.remember(tool_message)
 

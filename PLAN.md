@@ -223,6 +223,23 @@
   - 【完成标志】`_is_tool_failure` 四态断言（Error ✓ / 拒绝 ✓ / 阻止 ✓ / 正常输出 ✗）
 - [x] **10.4 验证与收尾**（✅ 2026-09-19，四轨全过：内核断言 **25 项全绿**；终端 /settings 冒烟；REST 4 项 200（health/静态页/settings/sessions）；浏览器真跑——派通传小黄门读 .env，两度触 .env 命令均被 fail-closed 拒绝、回执入出巡簿（ok:false 计熔断口径）、主对话诚实回禀**零泄漏**、子代理日志与审计 sender 可归因；主循环 git commit 高危圣旨弹窗照常弹出、Esc 驳回链路完整。已知取舍留痕：内官监营造的 pip install/git commit 类高危 ask 收编后自动拒绝，若实际受挫，后续可在内务府加"子代理 ask 策略"设置）
 
+## 阶段十一：轮级异常兜底——主循环安全网（P10 — 2026-09-19 立项，Backlog"主循环单轮异常无兜底"转正）
+
+> 背景：`_run_loop` 的 while 体没有 try/except——模型吐坏 JSON 参数（`llm.to_tool_call` 的
+> `json.loads`，流式拼回的 arguments 被 max_tokens 截断即残缺）、MCP 子进程与磁盘意外都会穿透：
+> 终端直接崩进程（4.5 的 remember() 递归事故即此形态）；Web 界面虽被 server 线程接住不崩，
+> 但工具批中途炸会留下"assistant 带 tool_calls 而无配对 tool 消息"的悬空历史（且已落盘），
+> 下一轮请求被 API 400 打回、轮轮如此——一个坏参数放大成一个会话的死刑。
+> 本阶段两层网 + 一个终端护栏，让单轮崩溃降级为"报错后继续会话"。
+
+- [x] **11.1 协议保对**（✅ 2026-09-19，`_parse_tool_blocks` 逐个解析 message.tool_calls：单条解析失败 / 参数非 JSON 对象 → 以该 id 就地落一条 Error tool 消息并跳过，同批其余照常执行；批后回填循环改为按 message.tool_calls 顺序覆盖全部 id）
+  - 【完成标志】断言 A1~A5：残缺 JSON 收到 Error tool 消息、同批 current_time 不受牵连照常执行、每个 tool_call_id 都有配对、轮次正常收尾零 error 事件（fake call_llm 全链路，不烧真 token）
+- [x] **11.2 轮级兜底**（✅ 2026-09-19，`_finish_round` 包住 `_run_loop`；`_crash_landing` 先发 error 事件、再 `_patch_dangling_tool_calls` 补尾部悬空并落盘、拼 assistant 说明入史后正常走 done，落点自身全程防御；send/regenerate/edit_last 各加入口级网护序备段；顺手修正 `_assistant_say` 为"先落盘再改内存史"——断言 D3 抓到落盘失败时内存史残留半截状态的问题）
+  - 【完成标志】断言 B1~B5（call_llm 抛异常→收束文案/error+done 事件入列/尾部 assistant 说明/会话文件无悬空）、C1~C3（半批悬空恰好补缺失 id 且幂等）、D1~D3（remember 打炸→入口网收束不二次崩）
+- [x] **11.3 终端护栏**（✅ 2026-09-19，main.py REPL 的 `runner.send` 包 try/except，终端获得与 Web 线程同级的"进程不死"保障）
+  - 【完成标志】终端 /settings + 退出冒烟干净
+- [x] **11.4 验证与收尾**（✅ 2026-09-19，内核断言 **16 项全绿** + 终端/REST 冒烟（health/静态页 200）+ 浏览器正常轮真跑（"现在几点"→current_time 工具卡 ✓、报时正确、自动题名、零错误）；债⑤子代理 LLM 裸奔的爆炸半径被本网收窄——其独立的重试/回禀增强仍留 Backlog）
+
 ## 待评估想法（Backlog）
 
 > 只记录，不排期。升级为正式任务前不占用主线资源。
@@ -236,8 +253,9 @@
 - 批量工具调用中若有一个被 Hook 拦截，整轮直接终止，同批其余**成功**的结果也不向用户/模型汇报
   （4.1 端到端实测发现：current_time 成功 + read .env 被拒，最终只见拒绝）——
   可改为逐个回传结果，让模型继续汇报未受阻的部分
-- 主循环单轮异常无兜底：4.5 开发中 remember() 的递归 bug 让 RecursionError 直接崩掉整个进程
-  （1.4 只兜住了 LLM 调用段）；可加轮级 try/except，让单轮崩溃降级为报错后继续会话
+- ~~主循环单轮异常无兜底：4.5 开发中 remember() 的递归 bug 让 RecursionError 直接崩掉整个进程
+  （1.4 只兜住了 LLM 调用段）；可加轮级 try/except，让单轮崩溃降级为报错后继续会话~~
+  **已转正为阶段十一完成落地**
 - 工具 schema 的 description 里仍带人设用语（"派遣一个小太监"等，registry.py），未随 persona
   切换——修改 schema 描述可能影响模型的工具选择行为，4.6 未动；可评估把描述中性化，
   人设术语全部收进 persona 模板的用语表
@@ -272,3 +290,4 @@
 | 2026-09-06 | 新增阶段八并完成（8.1 SessionStore 管理 + 8.2 会话 REST 与终端命令，UI 侧见 UIPLAN 阶段 H）：delete/rename/search/export 四能力进 SessionStore，rename 记 custom_titles 防 _maybe_title 覆盖；ACTIVE_SESSIONS 当值守卫（删除回 409）；/find /export 进终端。回归验收四轨全过（内核断言 10 项 / REST 8 项含错误分支 / 终端 4 分支 / 浏览器 14 项），顺手修复前端驻留条关闭钮监听器漏写 | 用户指令"回测第一档并更新文档推送"：回测即全量回归，无新 bug，仅补文档留痕 |
 | 2026-09-06 | 新增阶段九并完成（9.1 app_settings 设置层 + 9.2 消费点运行时生效，UI 侧见 UIPLAN 阶段 I 内务府面板）：settings.json 覆盖 .env 种子、强校验、损坏回落；ask_timeout/default_persona/subagent_fail_budget 三旋钮使用时现读零重启；上下文窗口不收编（归模型阁档案）。内核断言 6 项 + REST + 终端 /settings + 浏览器颁行与弹窗倒计时联动全过 | 第二档第一项"统一设置面板"：F3 模型阁趟出的 JSON+REST+表单模式直接复用，.env 从此只是种子；settings.json 入 gitignore（机器本地偏好） |
 | 2026-09-19 | 新增阶段十并完成（10.1~10.4，Backlog"子代理绕过 Hook 链"转正）：Hook 链从 runner.dispatch_tool 下沉至 registry.execute_guarded 统一守卫入口，主循环/子代理/队友三端一次收编；ask 无确认者 fail-closed 降级为 deny；审计条目增 sender；熔断计数兼容 Hook 拒绝。内核断言 25 项全绿 + 终端/REST 冒烟 + 浏览器真跑（小黄门读 .env 被 fail-closed 拦截零泄漏、主循环圣旨弹窗 Esc 驳回无回归） | 审计与策略防护对子代理/队友全盲区（通传小黄门可 type .env 绕主循环 deny）；收编后消除未来双触发隐患，主循环行为零变化由断言取证 |
+| 2026-09-19 | 新增阶段十一并完成（11.1~11.4，Backlog"主循环单轮异常无兜底"转正）：11.1 协议保对（坏 JSON 参数就地回 Error tool 消息，历史永无悬空）；11.2 轮级兜底（_finish_round 安全网：悬空补对→error 事件→说明入史→正常 done，入口级网护序备段，落点自身全程防御）；11.3 终端护栏（REPL 包 try/except 进程不死）。内核断言 16 项全绿（fake call_llm 全链路）+ 终端/REST 冒烟 + 浏览器正常轮真跑；断言抓到并修正 _assistant_say"先改史后落盘"的半截状态问题 | 模型吐坏参数（流式 arguments 截断）/MCP 与磁盘意外穿透主循环：终端崩进程（4.5 事故形态）、Web 会话悬空后轮轮 400——一个坏参数放大成一个会话的死刑 |
