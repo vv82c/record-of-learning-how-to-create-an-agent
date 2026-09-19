@@ -208,16 +208,29 @@
 - [x] **9.2 消费点运行时生效**（✅ 2026-09-06，实测：三个消费点全部改为使用时现读——runner 建连时读 default_persona（settings 覆盖 AGENT_PERSONA env）、WSConfirmer 建连时读 ask_timeout（subagent 熔断预算每次派遣现读 _fail_budget()）；改设置零重启）
   - 【完成标志】save 后新建 SessionRunner 人格变 guanjia、_fail_budget()==5、load()["ask_timeout"]==30 三证齐；REST：GET/POST /api/settings（校验错转 400）、终端 /settings 查看；浏览器圣旨弹窗实测倒计时按颁行后的 60 秒计时（高危档 + Esc 驳回全链路）
 
+## 阶段十：Hook 收编——三执行体统一守卫（P9 — 2026-09-19 立项，Backlog"子代理绕过 Hook 链"转正）
+
+> 背景：Hook 链此前只存在于 `SessionRunner.dispatch_tool`，子代理（`execute_basic_tool` 直调）
+> 与队友（registry 直查）全部绕过——敏感文件拦截、危险命令拦截、审计、输出截断对他们失效；
+> 通传小黄门可 `type .env` 绕过主循环的 deny。本阶段把链下沉到注册表统一守卫入口，
+> 三端一次收编；主循环行为零变化（断言取证），子代理/队友获得防护是**有意变更**。
+
+- [x] **10.1 统一守卫入口 `registry.execute_guarded`**（✅ 2026-09-19，Hook 链 + 执行 + 事件全内聚；on_event/confirmer 参数化；ask 无确认者时 fail-closed 降级为 deny；保住 server.py 的"先发 hook_ask 再等确认"时序契约）
+  - 【完成标志】主循环 `dispatch_tool` 收缩为"调守卫入口 + todos 事件"；事件名与字段（hook_ask/hook_decision/tool_start/tool_end 含 blocked/ok/duration_ms）与收编前逐字段一致（断言 7a~7c）；临时计数 Hook 证明 before_tool_call 单次触发（7d）；浏览器圣旨弹窗正常弹出 + Esc 驳回，时序契约实证
+- [x] **10.2 子代理与队友接入**（✅ 2026-09-19，subagent 换 execute_guarded（函数内延迟导入避开循环 import——team.py 先例）；team._exec 同改；confirmer=None 走 fail-closed；审计条目增 sender 字段，收掉子代理/队友写操作的审计盲区）
+  - 【完成标志】内核断言：守卫四分支（deny / ask 准 / ask 驳 / ask 无确认者）、写路径沙箱改写落盘、输出截断标记、审计 sender 入账、队友 `_exec` 读 .env 被拒（10a，此前可静默读走）
+- [x] **10.3 熔断计数兼容**（✅ 2026-09-19，`_is_tool_failure` 增计 "[HookDecision: 拒绝/阻止]" 前缀——被策略拦等于差事推进不了，计入连续失败，防子代理对拒绝死循环烧回合）
+  - 【完成标志】`_is_tool_failure` 四态断言（Error ✓ / 拒绝 ✓ / 阻止 ✓ / 正常输出 ✗）
+- [x] **10.4 验证与收尾**（✅ 2026-09-19，四轨全过：内核断言 **25 项全绿**；终端 /settings 冒烟；REST 4 项 200（health/静态页/settings/sessions）；浏览器真跑——派通传小黄门读 .env，两度触 .env 命令均被 fail-closed 拒绝、回执入出巡簿（ok:false 计熔断口径）、主对话诚实回禀**零泄漏**、子代理日志与审计 sender 可归因；主循环 git commit 高危圣旨弹窗照常弹出、Esc 驳回链路完整。已知取舍留痕：内官监营造的 pip install/git commit 类高危 ask 收编后自动拒绝，若实际受挫，后续可在内务府加"子代理 ask 策略"设置）
+
 ## 待评估想法（Backlog）
 
 > 只记录，不排期。升级为正式任务前不占用主线资源。
 
 - ~~`agent_core/llm.py` 的 `client` 是模块级单例~~ **已转正为阶段六 6.2 完成落地**
+- ~~子代理与队友的工具调用走 `execute_basic_tool`，不经过 Hook 链~~ **已转正为阶段十完成落地**
 - `subagent.py` 的 `run_subagent` 内 LLM 调用无兜底（team.py 已有 try/except）：
   子代理内 API 抛错会击穿主循环，建议复用 1.4 的 `call_llm`
-- 子代理与队友的工具调用走 `execute_basic_tool`，**不经过** `execute_main_tool` 的 Hook 链——
-  2.1/2.2 的 Hook 层防护（敏感文件、危险命令）对他们不生效；只有做在工具函数内部的
-  SSRF 防护（2.3）能覆盖全端。可选方案：把关键防护下沉到工具层，或让子代理也接入 Hook 注册表
 - `run_command` + `curl http://192.168.1.1` 可绕过 web_fetch 的 SSRF 防护（端到端实测中
   Agent 主动提出了这条"绕行建议"）——命令黑名单不认识它；根治靠命令级沙箱/出网白名单
 - 批量工具调用中若有一个被 Hook 拦截，整轮直接终止，同批其余**成功**的结果也不向用户/模型汇报
@@ -258,3 +271,4 @@
 | 2026-09-03 | 新增阶段六并完成（6.1 配置层 + 6.2 client 运行时重建，Backlog 首条转正）：model_profiles.py 多档案配置（.env 自动种子迁移、空 key 沿用旧值、model_profiles.json 先行入 .gitignore）；llm.py 改 apply_profile 可重建，runner/subagent/team/memory_rag/main 全部改 llm. 属性引用；context_window 随档案走。内核断言（切换/幂等/未配置引导/空 key 沿用）+ 终端回归全过 | 用户需求"模型配置放软件里"：配置界面属 UIPLAN 阶段F，内核侧的配置层与可重建 client 是其前置，一并落地 |
 | 2026-09-06 | 新增阶段八并完成（8.1 SessionStore 管理 + 8.2 会话 REST 与终端命令，UI 侧见 UIPLAN 阶段 H）：delete/rename/search/export 四能力进 SessionStore，rename 记 custom_titles 防 _maybe_title 覆盖；ACTIVE_SESSIONS 当值守卫（删除回 409）；/find /export 进终端。回归验收四轨全过（内核断言 10 项 / REST 8 项含错误分支 / 终端 4 分支 / 浏览器 14 项），顺手修复前端驻留条关闭钮监听器漏写 | 用户指令"回测第一档并更新文档推送"：回测即全量回归，无新 bug，仅补文档留痕 |
 | 2026-09-06 | 新增阶段九并完成（9.1 app_settings 设置层 + 9.2 消费点运行时生效，UI 侧见 UIPLAN 阶段 I 内务府面板）：settings.json 覆盖 .env 种子、强校验、损坏回落；ask_timeout/default_persona/subagent_fail_budget 三旋钮使用时现读零重启；上下文窗口不收编（归模型阁档案）。内核断言 6 项 + REST + 终端 /settings + 浏览器颁行与弹窗倒计时联动全过 | 第二档第一项"统一设置面板"：F3 模型阁趟出的 JSON+REST+表单模式直接复用，.env 从此只是种子；settings.json 入 gitignore（机器本地偏好） |
+| 2026-09-19 | 新增阶段十并完成（10.1~10.4，Backlog"子代理绕过 Hook 链"转正）：Hook 链从 runner.dispatch_tool 下沉至 registry.execute_guarded 统一守卫入口，主循环/子代理/队友三端一次收编；ask 无确认者 fail-closed 降级为 deny；审计条目增 sender；熔断计数兼容 Hook 拒绝。内核断言 25 项全绿 + 终端/REST 冒烟 + 浏览器真跑（小黄门读 .env 被 fail-closed 拦截零泄漏、主循环圣旨弹窗 Esc 驳回无回归） | 审计与策略防护对子代理/队友全盲区（通传小黄门可 type .env 绕主循环 deny）；收编后消除未来双触发隐患，主循环行为零变化由断言取证 |

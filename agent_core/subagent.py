@@ -9,7 +9,7 @@ from pathlib import Path
 from .config import SUBAGENT_LOG_DIR
 from . import app_settings, llm
 from .llm import assistant_to_dict, to_tool_call
-from .tools import TOOL_SCHEMAS, execute_basic_tool
+from .tools import TOOL_SCHEMAS
 
 # 任务 5.1：失败预算（熔断）。oxalpha 事件里子代理在网络不可达时傻傻烧满全部回合，
 # 只回传一句无原因的固定失败串。现在连续 N 次工具失败即提前收兵，并回传原因与统计。
@@ -26,8 +26,12 @@ def _is_tool_failure(content: str) -> bool:
 
     约定：web_fetch 的失败（超时/DNS/SSRF）与 run_command 的超时都以 "Error" 开头；
     普通命令的非零退出返回的是 stderr 原文，无法可靠识别，按成功计（宁漏勿误杀）。
+    阶段十：Hook 链收编后子代理会收到策略拒绝消息（"[HookDecision: 拒绝/阻止]"开头）——
+    被策略拦等于差事推进不了，同样计入连续失败，防止对着拒绝死循环烧回合。
     """
-    return content.startswith("Error")
+    return (content.startswith("Error")
+            or content.startswith("[HookDecision: 拒绝]")
+            or content.startswith("[HookDecision: 阻止]"))
 
 
 def _circuit_breaker_message(consecutive: int, turns_used: int) -> str:
@@ -179,6 +183,10 @@ def run_subagent(task: str, agent_type: str = "neiguan_yingzao",
 
     logger = _RunLogger(agent_type, task, purpose)
 
+    # 阶段十：工具执行走统一守卫入口（Hook 链全端生效，confirmer=None → ask 自动拒绝）。
+    # 函数内导入：registry 顶层 import 本模块（派遣选项），模块级互相导入会成环（team.py 先例）。
+    from .registry import execute_guarded
+
     messages = [{"role": "user", "content": task}]
     consecutive_failures = 0
     ok_count = 0
@@ -202,7 +210,10 @@ def run_subagent(task: str, agent_type: str = "neiguan_yingzao",
 
         for tc in msg.tool_calls:
             block = to_tool_call(tc)
-            content = execute_basic_tool(block, prefix=f"子({spec['title']})·")
+            content = execute_guarded(
+                block.name, block.input,
+                sender=f"subagent:{agent_type}", prefix=f"子({spec['title']})·",
+            )
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc.id,

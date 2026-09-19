@@ -17,9 +17,11 @@ from __future__ import annotations
 
 import datetime
 import json
+import time
 from types import SimpleNamespace
 
 from . import todos as todos_mod
+from .hooks import HOOKS, HookDecision, is_blocking_message
 from .memory import MEMORY
 from .mcp_client import MCP_TOOL_MAP, list_mcp_servers
 from .subagent import SUBAGENT_TYPE_OPTIONS, run_subagent
@@ -58,6 +60,87 @@ def execute_tool(name: str, inp: dict, sender: str = "lead", prefix: str = "") -
         mcp_client, tool = MCP_TOOL_MAP[name]
         return mcp_client.call_tool(tool.name, inp)
     return f"Error: Unknown tool '{name}'"
+
+
+def _emit_event(on_event, event: dict) -> None:
+    """订阅者异常绝不能影响内核（与 runner._emit_to 同款语义）。"""
+    if on_event is None:
+        return
+    try:
+        on_event(event)
+    except Exception:
+        pass
+
+
+def execute_guarded(name: str, inp: dict, sender: str = "lead", prefix: str = "",
+                    *, on_event=None, confirmer=None) -> str:
+    """统一守卫执行入口（阶段十）：Hook 链 + 工具执行，三端（主循环/子代理/队友）共用。
+
+    - confirmer：ask 决策的确认回调（接收 HookDecision，返回 bool）。传 None 表示该执行体
+      无法请求用户确认（子代理/队友）——ask 按 fail-closed 降级为拒绝，与终端非交互环境
+      的默认拒绝语义一致（hooks.confirm_hook_decision）。
+    - on_event：可选事件订阅者。主循环传 runner 的 _emit，界面事件（tool_start/tool_end/
+      hook_ask/hook_decision）由本入口发出，字段与收编前 dispatch_tool 逐字段一致；
+      子代理/队友不传则零事件，其执行现场仍由内层 execute_basic_tool 的打印呈现。
+    - 时序契约：hook_ask 事件先于 confirmer 调用发出（web/server.py 的 WSConfirmer
+      依赖此序——"dispatch_tool 在调用前已发出 hook_ask 事件，这里只负责等"）。
+    """
+    tool_ctx: dict = {"name": name, "input": inp, "sender": sender}
+    decision = HOOKS.emit("before_tool_call", tool_ctx, tool_matcher=name)
+    if isinstance(decision, HookDecision):
+        if decision.is_blocking:
+            _emit_event(on_event, {"type": "hook_decision", "action": decision.action,
+                                   "reason": decision.reason})
+            return decision.to_message()
+        if decision.action == "ask":
+            # E4.1 同款：结构化携带工具名与完整参数（reason 里的命令被 Hook 截断至 120 字符，
+            # 用户"看清再批"需要完整原文；input 取 tool_ctx——已含先前 allow hook 的改写）
+            _emit_event(on_event, {
+                "type": "hook_ask", "reason": decision.reason,
+                "tool": tool_ctx.get("name", name),
+                "input": tool_ctx.get("input", inp),
+                "level": getattr(decision, "level", "") or "",
+            })
+            allowed = bool(confirmer(decision)) if confirmer is not None else False
+            if not allowed:
+                if confirmer is not None:
+                    denied_reason = f"用户未确认高敏感操作：{decision.reason}"
+                else:
+                    denied_reason = (f"当前执行体无法请求用户确认（fail-closed），已默认拒绝："
+                                     f"{decision.reason}")
+                denied = HookDecision(action="deny", reason=denied_reason)
+                _emit_event(on_event, {"type": "hook_decision", "action": "deny",
+                                       "reason": denied.reason})
+                return denied.to_message()
+            _emit_event(on_event, {"type": "hook_decision", "action": "allow", "reason": "用户已确认"})
+    elif isinstance(decision, str):
+        return decision
+
+    inp = tool_ctx.get("input", inp)
+    _emit_event(on_event, {"type": "tool_start", "name": name, "input": inp})
+    start = time.perf_counter()
+    output = execute_tool(name, inp, sender=sender, prefix=prefix)
+
+    if tool_ctx.get("_hook_updated_reason") and isinstance(output, str):
+        output += ("\n[运行时提示] " + tool_ctx["_hook_updated_reason"]
+                   + "。请以实际执行参数为准，不要再尝试写回原路径。")
+
+    tool_ctx.update({
+        "name": name, "input": inp, "output": output,
+        "duration_ms": (time.perf_counter() - start) * 1000,
+    })
+    HOOKS.emit("after_tool_call", tool_ctx, tool_matcher=name)
+    output = tool_ctx.get("output", output)
+
+    output_text = str(output)
+    _emit_event(on_event, {
+        "type": "tool_end", "name": name, "output": output_text[:300],
+        "blocked": is_blocking_message(output_text),
+        # 成败沿子代理同款约定（"Error" 开头计为失败，宁漏勿误判）
+        "ok": not is_blocking_message(output_text) and not output_text.startswith("Error"),
+        "duration_ms": round(tool_ctx.get("duration_ms", 0), 1),
+    })
+    return output
 
 
 # ============== 基础工具：schema 复用 tools.TOO_SCHEMAS，handler 统一转发 ==============

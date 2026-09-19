@@ -257,10 +257,11 @@ class TeammateManager:
 
     def _exec(self, sender: str, tool_name: str, args: dict) -> str:
         # 函数内导入 registry：registry 在模块级导入了 team，模块级互相导入会成环
-        from .registry import execute_tool
+        from .registry import execute_guarded
         if tool_name not in TEAMMATE_TOOL_NAMES:
             return f"Error: unknown teammate tool '{tool_name}'"
-        return execute_tool(tool_name, args, sender=sender, prefix=f"队友({sender})·")
+        # 阶段十：队友同样走统一守卫入口（Hook 链全端生效，confirmer=None → ask 自动拒绝）
+        return execute_guarded(tool_name, args, sender=sender, prefix=f"队友({sender})·")
 
     def _teammate_tools(self) -> list[dict]:
         from .registry import get_schemas

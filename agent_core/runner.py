@@ -24,12 +24,12 @@ from openai import APIConnectionError, InternalServerError, RateLimitError
 from . import llm, memory_compact, todos as todos_mod
 from . import app_settings
 from .config import PERSONA_DIR
-from .hooks import HOOKS, HookDecision, confirm_hook_decision
+from .hooks import HOOKS, HookDecision, confirm_hook_decision, is_blocking_message
 from .llm import assistant_to_dict, to_tool_call   # F2：client/MODEL 一律走 llm. 属性引用（可热重建）
 from .mcp_client import build_tool_schemas
 from .memory import MEMORY
 from .memory_rag import MEMORY_RAG
-from .registry import execute_tool as registry_execute_tool
+from .registry import execute_guarded   # 阶段十：Hook 链下沉至统一守卫入口，三执行体共用
 from .registry import get_schemas
 from .sessions import SESSIONS
 from .skills import SKILL_LOADER
@@ -247,10 +247,6 @@ def _emit_to(on_event, event: dict) -> None:
         pass  # 订阅者异常绝不能影响内核
 
 
-def is_blocking_tool_result(result: str) -> bool:
-    return result.startswith("[HookDecision: 拒绝]") or result.startswith("[HookDecision: 需要确认]")
-
-
 # ============== SessionRunner：可编程驱动的对话内核 ==============
 class SessionRunner:
     """一次对话会话的驱动器：send(用户文本) 跑完"LLM→工具→LLM"循环并返回最终回复。"""
@@ -419,58 +415,18 @@ class SessionRunner:
         self._emit({"type": "reply", "text": text})
 
     def dispatch_tool(self, block) -> str:
-        """带 Hook 链的工具执行（原 execute_main_tool）；ask 由注入的 confirmer 处理。"""
-        name = block.name
-        tool_ctx = {"name": name, "input": block.input}
-        decision = HOOKS.emit("before_tool_call", tool_ctx, tool_matcher=name)
-        if isinstance(decision, HookDecision):
-            if decision.is_blocking:
-                self._emit({"type": "hook_decision", "action": decision.action, "reason": decision.reason})
-                return decision.to_message()
-            if decision.action == "ask":
-                # E4.1：结构化携带工具名与完整参数（reason 里的命令被 Hook 截断至 120 字符，
-                # 用户"看清再批"需要完整原文；input 取 tool_ctx——已含先前 allow hook 的改写）
-                self._emit({
-                    "type": "hook_ask", "reason": decision.reason,
-                    "tool": tool_ctx.get("name", name),
-                    "input": tool_ctx.get("input", block.input),
-                    "level": getattr(decision, "level", "") or "",
-                })
-                if not self._confirmer(decision):
-                    denied = HookDecision(
-                        action="deny", reason=f"用户未确认高敏感操作：{decision.reason}")
-                    self._emit({"type": "hook_decision", "action": "deny", "reason": denied.reason})
-                    return denied.to_message()
-                self._emit({"type": "hook_decision", "action": "allow", "reason": "用户已确认"})
-        elif isinstance(decision, str):
-            return decision
+        """带 Hook 链的工具执行。
 
-        inp = tool_ctx.get("input", block.input)
-        self._emit({"type": "tool_start", "name": name, "input": inp})
-        start = time.perf_counter()
-        output = registry_execute_tool(name, inp, sender="lead")
-
-        if tool_ctx.get("_hook_updated_reason") and isinstance(output, str):
-            output += ("\n[运行时提示] " + tool_ctx["_hook_updated_reason"]
-                       + "。请以实际执行参数为准，不要再尝试写回原路径。")
-
-        tool_ctx.update({
-            "name": name, "input": inp, "output": output,
-            "duration_ms": (time.perf_counter() - start) * 1000,
-        })
-        HOOKS.emit("after_tool_call", tool_ctx, tool_matcher=name)
-        output = tool_ctx.get("output", output)
-
-        if name == "update_todos":
+        链本体（before 决策 / ask 确认 / 执行 / after 截断 / tool_start、tool_end 事件）
+        在 registry.execute_guarded（阶段十三端收编）；这里只补主循环会话层的
+        todos 联动事件，并注入 UI 的确认回调（圣旨弹窗 / 终端 input）。
+        """
+        output = execute_guarded(
+            block.name, block.input, sender="lead",
+            on_event=self._emit, confirmer=self._confirmer,
+        )
+        if block.name == "update_todos":
             self._emit({"type": "todos", "todos": todos_mod.TODOS})
-        output_text = str(output)
-        self._emit({
-            "type": "tool_end", "name": name, "output": output_text[:300],
-            "blocked": is_blocking_tool_result(output_text),
-            # E2.2：成败沿子代理同款约定（"Error" 开头计为失败，宁漏勿误判）；耗时供卡片摘要行
-            "ok": not is_blocking_tool_result(output_text) and not output_text.startswith("Error"),
-            "duration_ms": round(tool_ctx.get("duration_ms", 0), 1),
-        })
         return output
 
     def _run_loop(self) -> str:
@@ -601,7 +557,7 @@ class SessionRunner:
 
             blocking_results = [
                 results_map[b.id] for b in tool_blocks
-                if isinstance(results_map.get(b.id), str) and is_blocking_tool_result(results_map[b.id])
+                if isinstance(results_map.get(b.id), str) and is_blocking_message(results_map[b.id])
             ]
             if blocking_results:
                 # 任务 A2 顺手修正：原句硬编码太监口吻前缀，与 4.6 人设能力分离不一致

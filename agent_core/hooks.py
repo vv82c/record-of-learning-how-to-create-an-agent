@@ -51,6 +51,15 @@ class HookDecision:
         return msg
 
 
+def is_blocking_message(text: str) -> bool:
+    """工具结果是否为 Hook 的阻断类反馈消息（拒绝 / 需要确认）。
+
+    原为 runner.is_blocking_tool_result（阶段十收编时迁入本模块）：
+    消息格式由 HookDecision.to_message 定义，判断逻辑与格式定义放在一处。
+    """
+    return text.startswith("[HookDecision: 拒绝]") or text.startswith("[HookDecision: 需要确认]")
+
+
 def confirm_hook_decision(decision: HookDecision) -> bool:
     """处理 ask 决策。
 
@@ -226,6 +235,8 @@ class ToolAuditHook(Hook):
             "ts": datetime.datetime.now().isoformat(),
             "tool": name,
             "input": ctx.get("input"),
+            # 阶段十：三执行体收编后审计覆盖全端，记下执行体归属便于归因
+            "sender": ctx.get("sender", "lead"),
         }
         AUDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
         _rotate_audit_if_needed()
