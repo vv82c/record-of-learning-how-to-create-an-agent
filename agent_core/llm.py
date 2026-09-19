@@ -15,13 +15,18 @@ import json
 import os
 from types import SimpleNamespace
 
-from openai import OpenAI
+from openai import APIConnectionError, InternalServerError, OpenAI, RateLimitError
 from dotenv import load_dotenv
 
 from . import model_profiles
 from .config import CONTEXT_WINDOW as _ENV_CONTEXT_WINDOW
 
 load_dotenv()
+
+# 可重试的 LLM 调用错误与重试上限（阶段十四自 runner.py 迁入）：
+# 主循环 call_llm 与子代理重试壳共用同一口径，避免两处各养一套"什么算瞬时错误"。
+RETRYABLE_ERRORS = (APIConnectionError, RateLimitError, InternalServerError)
+MAX_LLM_RETRIES = 3
 
 client: OpenAI | None = None
 MODEL: str = ""

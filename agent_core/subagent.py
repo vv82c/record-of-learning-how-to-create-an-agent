@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
 
 from .config import SUBAGENT_LOG_DIR
 from . import app_settings, llm
-from .llm import assistant_to_dict, to_tool_call
+from .llm import MAX_LLM_RETRIES, RETRYABLE_ERRORS, assistant_to_dict, to_tool_call
 from .tools import TOOL_SCHEMAS
 
 # 任务 5.1：失败预算（熔断）。oxalpha 事件里子代理在网络不可达时傻傻烧满全部回合，
@@ -45,6 +46,42 @@ def _max_turns_message(turns: int, ok: int, fail: int) -> str:
     return (
         f"（子代理达到 {turns} 轮上限未办妥；期间工具调用 {ok} 次成功、{fail} 次失败。"
         f"若失败居多，多半是目标不可达，建议换任务口径或确认网络。）"
+    )
+
+
+def _call_llm_with_retry(system_prompt: str, messages: list, tools: list) -> tuple:
+    """子代理 LLM 调用兜底（阶段十四，债⑤）：瞬时错误指数退避重试，仍失败返回 (None, 原因)。
+
+    降级为文字回禀而非抛异常：主循环拿到字符串照常走回禀流程，同批其他小太监的成果
+    不受牵连；重试口径与主循环 call_llm 一致（RETRYABLE_ERRORS 迁 llm.py 共用）。
+    """
+    if llm.client is None:
+        return None, "模型未配置（请在模型阁添加配置或检查 .env）"
+    last = "未知错误"
+    delay = 1.0
+    for attempt in range(1, MAX_LLM_RETRIES + 1):
+        try:
+            resp = llm.client.chat.completions.create(
+                model=llm.MODEL,
+                max_tokens=2000,
+                messages=[{"role": "system", "content": system_prompt}] + messages,
+                tools=tools,
+            )
+            return resp.choices[0].message, ""
+        except RETRYABLE_ERRORS as exc:
+            last = f"{type(exc).__name__}: {str(exc)[:120]}"
+            if attempt < MAX_LLM_RETRIES:
+                time.sleep(delay)
+                delay *= 2
+        except Exception as exc:
+            return None, f"{type(exc).__name__}: {str(exc)[:120]}"
+    return None, last
+
+
+def _llm_failure_message(reason: str) -> str:
+    return (
+        f"（差事办砸：模型调用失败——{reason}，已重试 {MAX_LLM_RETRIES} 次未果。"
+        f"建议总管改派其他小太监、换口径重试，或稍后再办。）"
     )
 
 
@@ -193,12 +230,15 @@ def run_subagent(task: str, agent_type: str = "neiguan_yingzao",
     fail_count = 0
 
     for turn in range(turns):
-        msg = llm.client.chat.completions.create(
-            model=llm.MODEL,
-            max_tokens=2000,
-            messages=[{"role": "system", "content": spec["system_prompt"]}] + messages,
-            tools=tools,
-        ).choices[0].message
+        msg, llm_err = _call_llm_with_retry(spec["system_prompt"], messages, tools)
+        if msg is None:
+            # 阶段十四（债⑤）：模型调用失败降级为文字回禀，不抛异常击穿主循环
+            text = _llm_failure_message(llm_err)
+            print(f"  └── 模型调用失败，提前收兵（第 {turn + 1} 轮）：{llm_err} ──\n")
+            print(f"[小太监回禀]: {text}\n")
+            logger.end(outcome="llm_error", turns_used=turn + 1,
+                       ok=ok_count, fail=fail_count, summary=text)
+            return text
         messages.append(assistant_to_dict(msg))
 
         if not msg.tool_calls:

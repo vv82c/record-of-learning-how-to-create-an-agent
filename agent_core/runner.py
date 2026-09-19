@@ -20,13 +20,14 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-from openai import APIConnectionError, InternalServerError, RateLimitError
+from openai import APIConnectionError, InternalServerError, RateLimitError  # noqa: F401  兼容旧引用
 
 from . import llm, memory_compact, todos as todos_mod
 from . import app_settings
 from .config import PERSONA_DIR
 from .hooks import HOOKS, HookDecision, confirm_hook_decision, is_blocking_message
 from .llm import assistant_to_dict, to_tool_call   # F2：client/MODEL 一律走 llm. 属性引用（可热重建）
+from .llm import RETRYABLE_ERRORS, MAX_LLM_RETRIES   # 阶段十四：口径迁 llm.py，与子代理共用
 from .mcp_client import build_tool_schemas
 from .memory import MEMORY
 from .memory_rag import MEMORY_RAG
@@ -127,8 +128,7 @@ def build_system_prompt(query: str = "", persona: str = DEFAULT_PERSONA) -> str:
 
 
 # ============== 流式 LLM 调用（自 main.py 迁入，print 改为事件） ==============
-RETRYABLE_ERRORS = (APIConnectionError, RateLimitError, InternalServerError)
-MAX_LLM_RETRIES = 3
+# RETRYABLE_ERRORS / MAX_LLM_RETRIES 已迁 llm.py（阶段十四：与子代理重试壳共用一口径）
 
 
 def call_llm(messages: list[dict], tools: list[dict], on_event=None, stop_event=None):
@@ -335,11 +335,18 @@ class SessionRunner:
             return self._crash_landing(exc)
 
     # ---- G3：另拟 / 改旨 ----
+    # ---- G3：另拟 / 改旨 ----
+    SYNTHETIC_USER_PREFIXES = (
+        "Stop Hook 阻止本轮结束",          # Stop 门禁自动注入的提醒
+        "部分工具被运行时策略拦截",        # 阶段十四：批量拦截后的防重试提醒
+    )
+
     def _last_real_user_index(self) -> int | None:
-        """最后一条真实用户消息的下标（跳过 Stop 门禁自动注入的提醒）。"""
+        """最后一条真实用户消息的下标（跳过内核自动注入的合成提醒，另拟/改旨不把它当圣谕）。"""
         for i in range(len(self.history) - 1, -1, -1):
             m = self.history[i]
-            if m.get("role") == "user" and not str(m.get("content", "")).startswith("Stop Hook 阻止本轮结束"):
+            if m.get("role") == "user" and not str(m.get("content", "")).startswith(
+                    self.SYNTHETIC_USER_PREFIXES):
                 return i
         return None
 
@@ -670,7 +677,14 @@ class SessionRunner:
                 if isinstance(results_map.get(b.id), str) and is_blocking_message(results_map[b.id])
             ]
             if blocking_results:
-                # 任务 A2 顺手修正：原句硬编码太监口吻前缀，与 4.6 人设能力分离不一致
-                reply = "（工具请求被运行时策略拦截，未继续改写或换路径执行。）\n\n" + blocking_results[0]
-                self._assistant_say(reply)
-                return reply
+                # 阶段十四（债③）：不再整轮终止——工具消息已全部入史（含拒绝原因与同批成功
+                # 结果），注入防重试提醒后继续循环，让模型如实汇报未受阻的部分。
+                # 固定文案替模型说话会陪葬成功结果，违背行事规矩第 5 条（4.1 实测留痕）。
+                reminder = {
+                    "role": "user",
+                    "content": ("部分工具被运行时策略拦截（原因见对应工具回执）。"
+                                "请如实向皇上汇报本批其余工具的执行结果；"
+                                "不要改写参数、不要换路径、不要重试被拦的操作。"),
+                }
+                self.history.append(reminder)
+                self.remember(reminder)
