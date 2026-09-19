@@ -325,6 +325,31 @@ class ToolPolicyHook(Hook):
         ("terraform apply", "执行 Terraform 变更"),
     ]
 
+    # 阶段十二：命令出访兜底（Backlog"curl 绕过 SSRF"第一层）。web_fetch 的 SSRF 防护
+    # 只护自己的 HTTP 客户端，run_command 执行 curl 等可直达内网/云元数据（端到端实测中
+    # Agent 主动提出过这条"绕行建议"）。出访命令走 ask(level=confirm) 交皇上把关，
+    # 子代理/队友等无确认者语境自动拒绝（fail-closed）。
+    # 已知边界：黑名单拦不住变体编码，本质是"把把关人换皇上"而非围墙；根治靠命令级
+    # 容器沙箱（--network none，待立项）。
+    EGRESS_PATTERNS = [
+        ("curl", "命令行 HTTP 客户端"),
+        ("wget", "命令行下载工具"),
+        ("invoke-webrequest", "PowerShell 网页请求"),
+        ("invoke-restmethod", "PowerShell REST 请求"),
+        ("iwr ", "PowerShell 网页请求（别名）"),
+        ("nc ", "netcat 网络连接"),
+        ("telnet", "telnet 网络连接"),
+        ("ssh ", "SSH 远程连接"),
+        ("scp ", "SSH 文件传输"),
+        ("sftp ", "SFTP 文件传输"),
+        ("ftp ", "FTP 文件传输"),
+        ("urllib", "Python 标准库网络请求"),
+        ("requests.get", "Python requests 网络请求"),
+        ("socket.socket", "Python 原生套接字"),
+        ("certutil -urlcache", "Windows 证书工具下载"),
+        ("bitsadmin /transfer", "Windows 后台传输下载"),
+    ]
+
     source_prefix = "demo_production/"
     target_prefix = "sandbox/demo_production/"
 
@@ -380,6 +405,16 @@ class ToolPolicyHook(Hook):
                     action="ask",
                     reason=f"需要确认：{description}。命令：{command[:120]}",
                     level="high",
+                )
+
+            # 阶段十二：网络出访兜底——位次在危险/敏感/高危之后，既有分类零变化
+            egress = self._match_pattern(command, self.EGRESS_PATTERNS)
+            if egress:
+                pattern, description = egress
+                return HookDecision(
+                    action="ask",
+                    reason=f"命令涉及网络出访（{description}，匹配模式：{pattern}），需要确认。命令：{command[:120]}",
+                    level="confirm",
                 )
             return
 

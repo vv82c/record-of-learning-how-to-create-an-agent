@@ -240,6 +240,18 @@
   - 【完成标志】终端 /settings + 退出冒烟干净
 - [x] **11.4 验证与收尾**（✅ 2026-09-19，内核断言 **16 项全绿** + 终端/REST 冒烟（health/静态页 200）+ 浏览器正常轮真跑（"现在几点"→current_time 工具卡 ✓、报时正确、自动题名、零错误）；债⑤子代理 LLM 裸奔的爆炸半径被本网收窄——其独立的重试/回禀增强仍留 Backlog）
 
+## 阶段十二：命令出访确认——SSRF 纵深的 ask 兜底层（P11 — 2026-09-19 立项，Backlog"curl 绕过 SSRF"第一层）
+
+> 背景：SSRF 防护只护 web_fetch 的 HTTP 客户端，`run_command` 执行 curl/Invoke-WebRequest
+> 可直达内网/云元数据（端到端实测中 Agent 自己提出这条"绕行建议"）。根治靠命令级沙箱
+> （容器 `--network none` 方案，见 Backlog）；本阶段先上便宜的兜底：网络出访类命令走圣旨
+> 确认（level=confirm，与敏感路径同构），子代理/队友等无确认者语境 fail-closed 自动拒绝。
+> 已知边界：黑名单拦不住变体编码，本质是"把把关人换皇上"而非围墙。
+
+- [x] **12.1 EGRESS_PATTERNS 出访模式表**（✅ 2026-09-19，curl/wget/invoke-webrequest/invoke-restmethod/iwr /nc /ssh /scp /sftp /ftp /telnet/urllib/requests.get/socket.socket/certutil -urlcache/bitsadmin /transfer，大小写不敏感子串匹配；检查位次插在 HIGH_SENSITIVITY 之后——既有危险/敏感/高危三类的分类行为零变化）
+  - 【完成标志】内核断言 13 项全绿：curl/大写 CURL/Invoke-WebRequest/urllib/certutil 五类出访命中 ask(confirm)、`echo hello` 不误伤、`git commit` 仍走高危 ask、`type .env` 仍走敏感 ask、危险命令仍 deny、子代理 curl 自动拒绝（阶段十 fail-closed 语义衔接）、准奏后 `curl --version` 照常执行
+- [x] **12.2 验证与收尾**（✅ 2026-09-19，浏览器真跑：传旨"用 curl 访问 http://192.168.1.1"→ 模型拼出 `curl -s -i -m 10 http://192.168.1.1 | head -50` 照样被子串匹配逮住、圣旨弹窗亮"网络出访"文案（昼间素绢主题目检）、Esc 驳回链路完整、主对话诚实回禀、自动题名「访问路由器请求被拦截」；SUMMARY 补纵深条目；根治路径（容器沙箱）留 Backlog 不动）
+
 ## 待评估想法（Backlog）
 
 > 只记录，不排期。升级为正式任务前不占用主线资源。
@@ -249,7 +261,8 @@
 - `subagent.py` 的 `run_subagent` 内 LLM 调用无兜底（team.py 已有 try/except）：
   子代理内 API 抛错会击穿主循环，建议复用 1.4 的 `call_llm`
 - `run_command` + `curl http://192.168.1.1` 可绕过 web_fetch 的 SSRF 防护（端到端实测中
-  Agent 主动提出了这条"绕行建议"）——命令黑名单不认识它；根治靠命令级沙箱/出网白名单
+  Agent 主动提出了这条"绕行建议"）——**阶段十二先落 ask 兜底层**（出访命令走圣旨确认）；
+  根治仍靠命令级沙箱/出网白名单（容器 `--network none` 方案待立项）
 - 批量工具调用中若有一个被 Hook 拦截，整轮直接终止，同批其余**成功**的结果也不向用户/模型汇报
   （4.1 端到端实测发现：current_time 成功 + read .env 被拒，最终只见拒绝）——
   可改为逐个回传结果，让模型继续汇报未受阻的部分
@@ -291,3 +304,4 @@
 | 2026-09-06 | 新增阶段九并完成（9.1 app_settings 设置层 + 9.2 消费点运行时生效，UI 侧见 UIPLAN 阶段 I 内务府面板）：settings.json 覆盖 .env 种子、强校验、损坏回落；ask_timeout/default_persona/subagent_fail_budget 三旋钮使用时现读零重启；上下文窗口不收编（归模型阁档案）。内核断言 6 项 + REST + 终端 /settings + 浏览器颁行与弹窗倒计时联动全过 | 第二档第一项"统一设置面板"：F3 模型阁趟出的 JSON+REST+表单模式直接复用，.env 从此只是种子；settings.json 入 gitignore（机器本地偏好） |
 | 2026-09-19 | 新增阶段十并完成（10.1~10.4，Backlog"子代理绕过 Hook 链"转正）：Hook 链从 runner.dispatch_tool 下沉至 registry.execute_guarded 统一守卫入口，主循环/子代理/队友三端一次收编；ask 无确认者 fail-closed 降级为 deny；审计条目增 sender；熔断计数兼容 Hook 拒绝。内核断言 25 项全绿 + 终端/REST 冒烟 + 浏览器真跑（小黄门读 .env 被 fail-closed 拦截零泄漏、主循环圣旨弹窗 Esc 驳回无回归） | 审计与策略防护对子代理/队友全盲区（通传小黄门可 type .env 绕主循环 deny）；收编后消除未来双触发隐患，主循环行为零变化由断言取证 |
 | 2026-09-19 | 新增阶段十一并完成（11.1~11.4，Backlog"主循环单轮异常无兜底"转正）：11.1 协议保对（坏 JSON 参数就地回 Error tool 消息，历史永无悬空）；11.2 轮级兜底（_finish_round 安全网：悬空补对→error 事件→说明入史→正常 done，入口级网护序备段，落点自身全程防御）；11.3 终端护栏（REPL 包 try/except 进程不死）。内核断言 16 项全绿（fake call_llm 全链路）+ 终端/REST 冒烟 + 浏览器正常轮真跑；断言抓到并修正 _assistant_say"先改史后落盘"的半截状态问题 | 模型吐坏参数（流式 arguments 截断）/MCP 与磁盘意外穿透主循环：终端崩进程（4.5 事故形态）、Web 会话悬空后轮轮 400——一个坏参数放大成一个会话的死刑 |
+| 2026-09-19 | 新增阶段十二并完成（12.1~12.2，Backlog"curl 绕过 SSRF"第一层）：ToolPolicyHook 增 EGRESS_PATTERNS 出访模式表（16 模式），命中走 ask(level=confirm)，无确认者语境 fail-closed 自动拒绝；根治（容器沙箱）另立项。内核断言 13 项全绿 + 浏览器真跑（curl 摸 192.168.1.1 被圣旨拦下、Esc 驳回、零实际出网） | SSRF 防护只护 web_fetch 窄口子，run_command 出网工具可直达内网/云元数据；先上便宜兜底把把关人换成皇上，黑名单拦不住变体的边界如实留痕 |
