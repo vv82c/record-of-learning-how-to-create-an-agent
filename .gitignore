@@ -34,3 +34,9 @@ model_profiles.json
 
 # ===== 阶段九：内务府行为设置（机器本地偏好，不入库） =====
 settings.json
+
+# ===== ZCode 开源仓库比较学习资料（2026-09-21）=====
+# 克隆的官方源码（124MB）与 GitHub 检索原始留痕不入库，可整目录删；
+# 两份 .md 文档（架构分析 / 借鉴指南）保留入库，作为后续优化指引
+zcode-opensource-study/repo/
+zcode-opensource-study/_raw/

@@ -292,12 +292,27 @@
 - ~~`subagent.py` 的 `run_subagent` 内 LLM 调用无兜底~~ **已转正为阶段十四完成落地**
 - `run_command` + `curl http://192.168.1.1` 可绕过 web_fetch 的 SSRF 防护（端到端实测中
   Agent 主动提出了这条"绕行建议"）——**阶段十二先落 ask 兜底层**（出访命令走圣旨确认）；
-  根治仍靠命令级沙箱/出网白名单（容器 `--network none` 方案待立项）
+  根治仍靠命令级沙箱/出网白名单（容器 `--network none` 方案待立项）。
+  【2026-09-21 ZCode 比较学习补充】ZCode 同款分层印证（黑名单→Job Object→远程容器），
+  Windows Job Object（pywin32）可作容器前的过渡档，② 立项时并入"自动"档一并评估，
+  见 zcode-opensource-study/ZCode比较学习-借鉴指南.md 债②一节
 - ~~批量工具调用中若有一个被 Hook 拦截，整轮直接终止，同批其余**成功**的结果也不向用户/模型汇报~~
   **已转正为阶段十四完成落地**
 - ~~主循环单轮异常无兜底：4.5 开发中 remember() 的递归 bug 让 RecursionError 直接崩掉整个进程
   （1.4 只兜住了 LLM 调用段）；可加轮级 try/except，让单轮崩溃降级为报错后继续会话~~
   **已转正为阶段十一完成落地**
+- 【ZCode 比较学习】圣旨规则持久化：同类操作"准奏一次、记入规则、下次免奏"
+  （ZCode permission rule-matching + 规则落盘模式）——Hook 链加一层规则记忆，
+  deny > ask > allow 优先级，规则记"模式"不记全量命令文本（防固化豁免），审计照记；
+  设计输入见 zcode-opensource-study/ZCode比较学习-借鉴指南.md 借鉴A
+- 【ZCode 比较学习】子代理只读预设：profile 增工具白名单维度（ZCode Explore 型子代理
+  只配 Read/Bash 搜索类，专侦察不落笔），只读侦察兵可免奏；与阶段十 execute_guarded
+  统一守卫兼容（白名单是前置过滤，Hook 链不绕）；
+  设计输入见 zcode-opensource-study/ZCode比较学习-借鉴指南.md 借鉴B
+- 【ZCode 比较学习】微压缩 microcompact：压缩触发前先把老轮次工具输出截断为占位
+  （保 tool 骨架丢肉），推迟整体总结水位；红线是消息结构合法性（tool 不悬空、
+  assistant/tool 配对完整，11.1 不变量不得破坏）；
+  设计输入见 zcode-opensource-study/ZCode比较学习-借鉴指南.md 借鉴C
 - 工具 schema 的 description 里仍带人设用语（"派遣一个小太监"等，registry.py），未随 persona
   切换——修改 schema 描述可能影响模型的工具选择行为，4.6 未动；可评估把描述中性化，
   人设术语全部收进 persona 模板的用语表
@@ -336,3 +351,4 @@
 | 2026-09-19 | 新增阶段十二并完成（12.1~12.2，Backlog"curl 绕过 SSRF"第一层）：ToolPolicyHook 增 EGRESS_PATTERNS 出访模式表（16 模式），命中走 ask(level=confirm)，无确认者语境 fail-closed 自动拒绝；根治（容器沙箱）另立项。内核断言 13 项全绿 + 浏览器真跑（curl 摸 192.168.1.1 被圣旨拦下、Esc 驳回、零实际出网） | SSRF 防护只护 web_fetch 窄口子，run_command 出网工具可直达内网/云元数据；先上便宜兜底把把关人换成皇上，黑名单拦不住变体的边界如实留痕 |
 | 2026-09-19 | 新增阶段十三并完成（13.1~13.5，密折/临时对话）：runner ephemeral 标志堵全部写入口子（remember/压缩/题名/truncate），禁写 save_memory/spawn_teammate，誊出逃生门共享渲染（export_markdown 重构逐字节一致），终端 /mi + Web 密折按钮/横幅双主题。内核断言 21 项全绿 + 终端冒烟 + 浏览器真跑（记住被拒如实转告、三处零落盘、誊出有件、关窗即焚零清理） | 皇上体验千问临时对话后提出；架构红利 runner 随连接生灭，关窗即焚天然成立，测试流程也直接受益 |
 | 2026-09-20 | 新增阶段十四并完成（14.1~14.3，Backlog 债③债⑤转正）：③批量拦截去早退、防重试提醒后继续循环；⑤子代理 LLM 重试壳（RETRYABLE 迁 llm.py 一口径）+ 降级回禀 + llm_error 日志。内核断言 14 项全绿；浏览器真跑复现 4.1 场景——同批一成一败两件都如实汇报 | 两笔都在派遣/工具批路径上，断言脚手架现成（fake call_llm/client），合并清偿 |
+| 2026-09-21 | 与 zai-org/ZCode 开源代码（v3.14.0，约 84 万行 TS）做一次**比较学习**：克隆源码至 zcode-opensource-study/（架构分析 + 借鉴指南两份文档，克隆与检索留痕已入 .gitignore 不入库）；Backlog 新增 3 条候选（圣旨规则持久化/子代理只读预设/微压缩），债② 条目补 Job Object 过渡档注释。未动任何代码 | 用户发起比较学习；独立收敛对照表佐证既有设计（出访黑名单的局限结论与 ZCode 逐字同构），差异处即规模逼出的结构，作为后续优化指引——动代码前须先转正立项 |
