@@ -80,11 +80,72 @@ def _is_blocked_address(ip_str: str) -> bool:
     return any(addr in net for net in BLOCKED_NETWORKS)
 
 
+# ===== hosts 回环域名白名单（阶段十五 15.1）=====
+# 2026-09-21 查访事故复盘：本机 hosts 式加速器把 github.com 等映射到 127.0.0.1，
+# SSRF 防护按"解析到回环"一律拦截，主代理与东厂探事的 web_fetch 全数扑街——
+# 加速器越尽责，查访越瘫痪。而 hosts 文件本身就是加速器的域名清单（用户亲手
+# 配置，加速器软件加一个域就多一行），信任级与"攻击者诱导摸内网"不同：
+# 读 hosts 取"映射到回环"的域名，视为用户背书放行。
+# 已知边界如实留痕：仅覆盖 hosts 式加速器；TUN/fake-ip 型（如 Clash TUN 把
+# 全部域名解析到 198.18.0.0/15 保留段）不写 hosts，本白名单不适用；hosts 里
+# 映射到非回环内网段（如公司内网 10.x）的条目一律不收，仍按原逻辑拦截。
+_TRUSTED_PORTS = {None, 80, 443}  # 白名单仅放行默认端口/80/443，堵"借 github.com:6379 摸本地其他服务"的口子
+_HOSTS_CACHE: tuple[float | None, frozenset[str]] | None = None  # (hosts mtime, 域名集)
+
+
+def _hosts_paths() -> list[Path]:
+    """hosts 文件的候选路径：Windows 在 SystemRoot 下，其余走 /etc/hosts。"""
+    roots: list[Path] = []
+    systemroot = os.environ.get("SystemRoot")
+    if systemroot:
+        roots.append(Path(systemroot) / "System32" / "drivers" / "etc" / "hosts")
+    roots.append(Path("/etc/hosts"))
+    return roots
+
+
+def hosts_loopback_domains() -> frozenset[str]:
+    """读 hosts 文件，收集映射到回环地址的域名（加速器白名单）。
+
+    按 mtime 缓存：加速器软件改了 hosts，下次调用自动重读，无需任何手工维护。
+    localhost 即便在 hosts 里有映射也永不放行（BLOCKED_HOSTNAMES 优先）。
+    """
+    global _HOSTS_CACHE
+    path = next((p for p in _hosts_paths() if p.is_file()), None)
+    mtime: float | None = None
+    if path is not None:
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            path = None
+    if _HOSTS_CACHE is not None and _HOSTS_CACHE[0] == mtime:
+        return _HOSTS_CACHE[1]
+
+    domains: set[str] = set()
+    if path is not None:
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            tokens = line.split("#", 1)[0].split()
+            if len(tokens) < 2:
+                continue
+            try:
+                if not ipaddress.ip_address(tokens[0]).is_loopback:
+                    continue  # 只认回环映射：加速器特征；内网段映射不背书
+            except ValueError:
+                continue
+            for name in tokens[1:]:
+                name = name.strip().rstrip(".").lower()
+                if name and name not in BLOCKED_HOSTNAMES:
+                    domains.add(name)
+
+    _HOSTS_CACHE = (mtime, frozenset(domains))
+    return _HOSTS_CACHE[1]
+
+
 def assert_url_allowed(url: str) -> None:
     """SSRF 检查，不通过则抛 BlockedAddressError。
 
     1) 主机名是 localhost 或 IP 字面量 → 直接判断；
-    2) 域名 → getaddrinfo 解析出全部 IP 逐一判断，堵住"域名解析到内网"的绕过。
+    2) 域名 → getaddrinfo 解析出全部 IP 逐一判断，堵住"域名解析到内网"的绕过；
+    3) hosts 映射到回环的加速器域名（阶段十五 15.1）→ 限 80/443 端口放行。
     局限：检查与实际连接各自解析一次 DNS，理论上存在 TOCTOU 竞态（DNS rebinding），
     教学版不做到"锁定已解析 IP 直连"的程度。
     """
@@ -96,6 +157,15 @@ def assert_url_allowed(url: str) -> None:
         raise BlockedAddressError(f"目标主机名为 localhost，已拦截：{url}")
     if _is_blocked_address(host):
         raise BlockedAddressError(f"目标 {host} 属于内网/保留地址段，已拦截：{url}")
+    # 阶段十五 15.1：加速器域名短路。非常规端口不放行——白名单背书的是"访问这个网站"，
+    # 不是"借这个域名摸本机任意端口的服务"；端口不符就走原检查（照例拦回环）。
+    if host in hosts_loopback_domains():
+        try:
+            port = parts.port
+        except ValueError:
+            port = -1
+        if port in _TRUSTED_PORTS:
+            return
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror as exc:

@@ -10,7 +10,7 @@ from pathlib import Path
 from .config import SUBAGENT_LOG_DIR
 from . import app_settings, llm
 from .llm import MAX_LLM_RETRIES, RETRYABLE_ERRORS, assistant_to_dict, to_tool_call
-from .tools import TOOL_SCHEMAS
+from .tools import TOOL_SCHEMAS, hosts_loopback_domains
 
 # 任务 5.1：失败预算（熔断）。oxalpha 事件里子代理在网络不可达时傻傻烧满全部回合，
 # 只回传一句无原因的固定失败串。现在连续 N 次工具失败即提前收兵，并回传原因与统计。
@@ -35,18 +35,28 @@ def _is_tool_failure(content: str) -> bool:
             or content.startswith("[HookDecision: 阻止]"))
 
 
-def _circuit_breaker_message(consecutive: int, turns_used: int) -> str:
-    return (
+def _circuit_breaker_message(consecutive: int, turns_used: int,
+                             clues: list[str] | None = None) -> str:
+    text = (
         f"（子代理提前收兵：连续 {consecutive} 次工具调用失败，疑似网络不可达或资源受限；"
-        f"已尝试 {turns_used} 轮。建议：确认网络/代理是否可用，或改派本地只读任务。）"
+        f"已尝试 {turns_used} 轮。"
     )
+    if clues:
+        text += "途中线索：" + " ｜ ".join(f"《{c}》" for c in clues) + "。"
+    text += "建议：确认网络/代理是否可用，或改派本地只读任务。）"
+    return text
 
 
-def _max_turns_message(turns: int, ok: int, fail: int) -> str:
-    return (
+def _max_turns_message(turns: int, ok: int, fail: int,
+                       clues: list[str] | None = None) -> str:
+    text = (
         f"（子代理达到 {turns} 轮上限未办妥；期间工具调用 {ok} 次成功、{fail} 次失败。"
-        f"若失败居多，多半是目标不可达，建议换任务口径或确认网络。）"
     )
+    if clues:
+        # 阶段十五 15.3：超轮 ≠ 颗粒无收。线索附上让总管直接查收，不再第二遍重查
+        text += "途中线索（请总管查收，可能已含答案）：" + " ｜ ".join(f"《{c}》" for c in clues) + "。"
+    text += "若失败居多，多半是目标不可达，建议换任务口径或确认网络。）"
+    return text
 
 
 def _call_llm_with_retry(system_prompt: str, messages: list, tools: list) -> tuple:
@@ -78,11 +88,53 @@ def _call_llm_with_retry(system_prompt: str, messages: list, tools: list) -> tup
     return None, last
 
 
-def _llm_failure_message(reason: str) -> str:
-    return (
+def _llm_failure_message(reason: str, clues: list[str] | None = None) -> str:
+    text = (
         f"（差事办砸：模型调用失败——{reason}，已重试 {MAX_LLM_RETRIES} 次未果。"
-        f"建议总管改派其他小太监、换口径重试，或稍后再办。）"
     )
+    if clues:
+        text += "途中线索：" + " ｜ ".join(f"《{c}》" for c in clues) + "。"
+    text += "建议总管改派其他小太监、换口径重试，或稍后再办。）"
+    return text
+
+
+def _network_env_note(spec_tools: list[str]) -> str:
+    """阶段十五 15.2 探子知情权：派遣前生成本机网络环境说明（无加速器 → 空串 → 零注入）。
+
+    2026-09-21 查访事故：东厂探事不知道本机 hosts 式加速器的存在，web_fetch 被
+    SSRF 防护连拦两轮（github.com 全被解析成 127.0.0.1）、curl 被 fail-closed
+    拒绝，把轮次烧在撞墙上还不明所以。说明随差事注入，让奴才出门前先知路况。
+    """
+    if not ({"web_fetch", "run_command"} & set(spec_tools)):
+        return ""  # 无网络工具的身份（如小黄门）用不上路况
+    domains = hosts_loopback_domains()
+    if not domains:
+        return ""  # 本机无 hosts 式加速器：不注入，行为与旧版完全一致
+    sample = "、".join(sorted(domains)[:8])
+    more = f"等共 {len(domains)} 个域名" if len(domains) > 8 else "域名"
+    return (
+        f"[本机网络环境说明] 此机 hosts 将 {sample}{more}映射到本机回环（加速器特征），"
+        "web_fetch 访问这些域名已放行可直连；其余境外站点直连可能超时，境内站点（如 bing.com）通常可达。"
+        "某站点连续不可达时请换可达源或尽快回禀，不要反复撞同一批境外域名。"
+    )
+
+
+def _salvage_clues(messages: list, limit: int = 3, width: int = 150) -> list[str]:
+    """阶段十五 15.3 收兵打捞：从历史里捞最近 N 条非失败的工具结果当线索。
+
+    同日事故的另一面：东厂探事第 5 轮就读到了答案（本地文书里的仓库网址），
+    却因超轮收兵没能带回，总管两手空空只能自己重查一遍。失败结果不计入线索
+    （失败已有统计与原因覆盖），线索随收兵文案一并回禀。
+    """
+    clues: list[str] = []
+    for msg in messages:
+        if msg.get("role") != "tool":
+            continue
+        content = str(msg.get("content") or "").strip()
+        if not content or _is_tool_failure(content):
+            continue
+        clues.append(" ".join(content.split())[:width])  # 压平空白再截，回禀不吞版面
+    return clues[-limit:]
 
 
 # ============== 子代理预设身份 ==============
@@ -175,17 +227,20 @@ class _RunLogger:
     """子代理执行日志（任务 5.2）：一次派遣一个 jsonl，记 start/tool/end 三类事件。
 
     oxalpha 事件里子代理内部完全不可观测——失败只能靠主对话记录反推。
-    事件字段：ts / event /（start: agent_type, task, purpose）（tool: turn, tool, ok,
-    result 前 200 字）（end: outcome=done|circuit_breaker|max_turns, turns_used, ok, fail,
-    summary 前 200 字）。目录 memory/subagent_logs/（已被 .gitignore 的 memory/ 覆盖）。
+    事件字段：ts / event /（start: agent_type, task, purpose, env_note 前 300 字——
+    阶段十五 15.2 起，task 恒为原始差事原文、路况说明独立成字段，不挤占截断口径）
+    （tool: turn, tool, ok, result 前 200 字）（end: outcome=done|circuit_breaker|
+    max_turns|llm_error, turns_used, ok, fail, summary 前 200 字）。
+    目录 memory/subagent_logs/（已被 .gitignore 的 memory/ 覆盖）。
     """
 
-    def __init__(self, agent_type: str, task: str, purpose: str):
+    def __init__(self, agent_type: str, task: str, purpose: str, env_note: str = ""):
         SUBAGENT_LOG_DIR.mkdir(parents=True, exist_ok=True)
         self.path = SUBAGENT_LOG_DIR / (
             f"{datetime.now():%Y%m%d-%H%M%S}-{agent_type}-{uuid.uuid4().hex[:6]}.jsonl"
         )
-        self.log(event="start", agent_type=agent_type, task=task[:500], purpose=purpose)
+        self.log(event="start", agent_type=agent_type, task=task[:500], purpose=purpose,
+                 env_note=env_note[:300])
 
     def log(self, **kw) -> None:
         kw["ts"] = datetime.now().isoformat(timespec="seconds")
@@ -218,7 +273,12 @@ def run_subagent(task: str, agent_type: str = "neiguan_yingzao",
     print(f"\n[派遣小太监 #{_SUBAGENT_COUNTER}({spec['title']} / {agent_type})]: {label}")
     print("  ┌── subagent context start ──")
 
-    logger = _RunLogger(agent_type, task, purpose)
+    # 阶段十五 15.2：路况说明先于日志生成——start 事件的 task 保持差事原文，
+    # 说明另记 env_note 字段；随后才拼进子代理实际收到的差事里。
+    env_note = _network_env_note(spec["tools"])
+    logger = _RunLogger(agent_type, task, purpose, env_note=env_note)
+    if env_note:
+        task = f"{env_note}\n\n{task}"
 
     # 阶段十：工具执行走统一守卫入口（Hook 链全端生效，confirmer=None → ask 自动拒绝）。
     # 函数内导入：registry 顶层 import 本模块（派遣选项），模块级互相导入会成环（team.py 先例）。
@@ -233,7 +293,7 @@ def run_subagent(task: str, agent_type: str = "neiguan_yingzao",
         msg, llm_err = _call_llm_with_retry(spec["system_prompt"], messages, tools)
         if msg is None:
             # 阶段十四（债⑤）：模型调用失败降级为文字回禀，不抛异常击穿主循环
-            text = _llm_failure_message(llm_err)
+            text = _llm_failure_message(llm_err, _salvage_clues(messages))
             print(f"  └── 模型调用失败，提前收兵（第 {turn + 1} 轮）：{llm_err} ──\n")
             print(f"[小太监回禀]: {text}\n")
             logger.end(outcome="llm_error", turns_used=turn + 1,
@@ -270,14 +330,15 @@ def run_subagent(task: str, agent_type: str = "neiguan_yingzao",
 
         # 熔断检查放在整批工具执行完之后：协议要求每个 tool_call 都要有配对结果
         if consecutive_failures >= _fail_budget():
-            text = _circuit_breaker_message(consecutive_failures, turn + 1)
+            text = _circuit_breaker_message(consecutive_failures, turn + 1,
+                                            _salvage_clues(messages))
             print(f"  └── 连续 {consecutive_failures} 次工具失败，触发熔断提前收兵（第 {turn + 1} 轮）──\n")
             print(f"[小太监回禀]: {text}\n")
             logger.end(outcome="circuit_breaker", turns_used=turn + 1,
                        ok=ok_count, fail=fail_count, summary=text)
             return text
 
-    text = _max_turns_message(turns, ok_count, fail_count)
+    text = _max_turns_message(turns, ok_count, fail_count, _salvage_clues(messages))
     print(f"  └── subagent context end (达到 {turns} 轮上限，成功 {ok_count} / 失败 {fail_count}) ──\n")
     print(f"[小太监回禀]: {text}\n")
     logger.end(outcome="max_turns", turns_used=turns, ok=ok_count, fail=fail_count, summary=text)
